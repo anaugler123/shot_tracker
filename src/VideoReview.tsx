@@ -203,8 +203,9 @@ export function VideoRoom({
   function exitWatch() {
     if (document.fullscreenElement === surface.current)
       void document.exitFullscreen?.().catch(() => {});
-    const latest = g.shots.find((s) => s.id === selectedId);
+    const latest = g.shots.find((s) => s.id === selectedId) || ordered[0];
     if (latest) {
+      setSelectedId(latest.id);
       setTime(timeLabel(latest.timestamp));
       setNote(latest.note);
       setReview(latest.review);

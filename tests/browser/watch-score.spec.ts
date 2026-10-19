@@ -110,9 +110,7 @@ test("fullscreen scoring keeps the stream, captures shot time, and retains draft
   await expect(
     panel.getByRole("button", { name: "Score 5", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
-  await panel
-    .getByRole("button", { name: "Move scoring panel left", exact: true })
-    .click();
+  await panel.getByLabel("Scoring panel position").selectOption("left");
   await expect(panel).toHaveClass(/left/);
   await panel
     .getByRole("button", { name: "Save & next shot", exact: true })
@@ -289,4 +287,46 @@ test("player accounts can review video but cannot open scoring widgets", async (
     page.getByRole("button", { name: "Watch & score", exact: true }),
   ).toHaveCount(0);
   await expect(page.locator(".watch-score-panel")).toHaveCount(0);
+});
+
+test("bottom scoring panel keeps draft fields, saves shots, and remembers its position", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await setup(page);
+  const panel = page.locator(".watch-score-panel");
+  await fillShot(panel);
+  await panel.getByLabel("Scoring panel position").selectOption("bottom");
+  await expect(panel).toHaveClass(/bottom/);
+  await expect(
+    panel.getByRole("button", { name: "Score 5", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  const bounds = await panel.boundingBox();
+  expect(bounds!.y).toBeGreaterThan(768 * 0.4);
+  expect(bounds!.width).toBeGreaterThan(1366 * 0.8);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(768);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await panel
+    .getByRole("button", { name: "Save & next shot", exact: true })
+    .click();
+  await expect(panel.locator(".watch-score-heading .shot-code")).toHaveText(
+    "1B",
+  );
+  expect(await page.evaluate(() => (window as any).__instances)).toBe(1);
+  await page
+    .getByRole("button", { name: "Close watch and score", exact: true })
+    .click();
+  await expect(page.locator(".review-shot-header .shot-code")).toHaveText("1A");
+  await page
+    .getByRole("button", { name: "Watch & score", exact: true })
+    .click();
+  await expect(panel.getByLabel("Scoring panel position")).toHaveValue(
+    "bottom",
+  );
+  await panel.getByLabel("Scoring panel position").selectOption("right");
+  await expect(panel).toHaveClass(/right/);
 });

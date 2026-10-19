@@ -5,7 +5,7 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { ArrowLeft, ArrowRight, ArrowLeftRight } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { emptyShot, nextShot, type Game, type Shot } from "./model";
 import { ShotForm } from "./ShotForm";
 import { EndScoreModal } from "./EndScoreModal";
@@ -35,7 +35,22 @@ export function WatchScoring({
   const [dirty, setDirty] = useState(false);
   const dirtyRef = useRef(false);
   const [pending, setPending] = useState<Shot | null>(null);
-  const [side, setSide] = useState<"right" | "left">("right");
+  const [side, setSide] = useState<"right" | "left" | "bottom">(() => {
+    try {
+      const saved = localStorage.getItem("hack.watchPanelPosition");
+      return saved === "left" || saved === "bottom" ? saved : "right";
+    } catch {
+      return "right";
+    }
+  });
+  function changePosition(value: "right" | "left" | "bottom") {
+    setSide(value);
+    try {
+      localStorage.setItem("hack.watchPanelPosition", value);
+    } catch {
+      /* Keep the position for this session when storage is unavailable. */
+    }
+  }
   const [version, setVersion] = useState(0);
   const [scoreEnd, setScoreEnd] = useState<number | null>(null);
   const [message, setMessage] = useState("");
@@ -149,13 +164,16 @@ export function WatchScoring({
             >
               <ArrowRight size={16} />
             </button>
-            <button
-              className="icon-button watch-move"
-              aria-label={`Move scoring panel ${side === "right" ? "left" : "right"}`}
-              onClick={() => setSide(side === "right" ? "left" : "right")}
+            <select
+              className="watch-position"
+              aria-label="Scoring panel position"
+              value={side}
+              onChange={(e) => changePosition(e.target.value as typeof side)}
             >
-              <ArrowLeftRight size={18} />
-            </button>
+              <option value="right">Right</option>
+              <option value="left">Left</option>
+              <option value="bottom">Bottom</option>
+            </select>
           </div>
         </div>
         <div className="watch-score-body" ref={body}>
