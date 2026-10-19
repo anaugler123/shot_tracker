@@ -127,3 +127,53 @@ test("finishing early requests the current end score and opens the game dashboar
   );
   await expect(page.locator(".game-overview")).toContainText("FINAL");
 });
+
+test("end advantage uses workbook greens and reds with readable final results", async ({
+  page,
+}) => {
+  const game = fixture();
+  game.status = "complete";
+  game.scores = [
+    { us: 2, them: 0 },
+    { us: 0, them: 1 },
+    { us: 0, them: 3 },
+    { us: 0, them: 0 },
+    { us: 0, them: 0 },
+    { us: 3, them: 0 },
+    { us: 3, them: 0 },
+    { us: 0, them: 0 },
+    { us: null, them: null },
+  ];
+  await page.addInitScript(
+    (game) =>
+      localStorage.setItem(
+        "hack.store.v1",
+        JSON.stringify({ version: 1, games: [game] }),
+      ),
+    game,
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "Dashboard", exact: true }).click();
+  await page.getByRole("tab", { name: "Game", exact: true }).click();
+  const positions = page.locator(".position-timeline .position-state");
+  await expect(positions).toHaveCount(9);
+  await expect(positions.nth(1)).toHaveCSS(
+    "background-color",
+    "rgb(178, 255, 170)",
+  );
+  await expect(positions.nth(2)).toHaveCSS(
+    "background-color",
+    "rgb(158, 207, 153)",
+  );
+  await expect(positions.nth(3)).toHaveCSS(
+    "background-color",
+    "rgb(255, 147, 143)",
+  );
+  await expect(positions.nth(8)).toHaveCSS("background-color", "rgb(0, 91, 0)");
+  await expect(positions.nth(8).locator("span")).toHaveCSS(
+    "color",
+    "rgb(255, 255, 255)",
+  );
+  await expect(positions.nth(3)).toContainText("With hammer");
+  await expect(positions.nth(8)).toContainText("8 – 4");
+});

@@ -37,6 +37,15 @@
   --deficiency-undercurl: #cfecf7;
   --deficiency-overcurl: #6fc5e6;
   --deficiency-management: #a6a6a6;
+  --end-strong-good: #8ea98c;
+  --end-good: #9ecf99;
+  --end-slight-good: #b2ffaa;
+  --end-slight-bad: #ffafab;
+  --end-bad: #ff938f;
+  --end-strong-bad: #ce8383;
+  --end-start-bad: #ffcdcb;
+  --end-win: #005b00;
+  --end-loss: #8e0000;
   --score-0: #ff0000;
   --score-1: #ffc000;
   --score-2: #ffc000;
@@ -2026,10 +2035,48 @@ blockquote {
   padding: 13px;
   text-align: center;
 }
-.position-state.advantage {
-  background: var(--surface-muted);
-  border-color: var(--line);
+[data-advantage-tone="strong-good"] {
+  --end-fill: var(--end-strong-good);
 }
+[data-advantage-tone="good"] {
+  --end-fill: var(--end-good);
+}
+[data-advantage-tone="slight-good"] {
+  --end-fill: var(--end-slight-good);
+}
+[data-advantage-tone="slight-bad"] {
+  --end-fill: var(--end-slight-bad);
+}
+[data-advantage-tone="bad"] {
+  --end-fill: var(--end-bad);
+}
+[data-advantage-tone="strong-bad"] {
+  --end-fill: var(--end-strong-bad);
+}
+[data-advantage-tone="start-bad"] {
+  --end-fill: var(--end-start-bad);
+}
+[data-advantage-tone="win"] {
+  --end-fill: var(--end-win);
+  --end-ink: #ffffff;
+}
+[data-advantage-tone="loss"] {
+  --end-fill: var(--end-loss);
+  --end-ink: #ffffff;
+}
+.position-state[data-advantage-tone] {
+  background: var(--end-fill);
+  border-color: color-mix(in srgb, var(--end-fill) 75%, #000000);
+  color: var(--end-ink, #172117);
+}
+.position-state[data-advantage-tone] > small,
+.position-state[data-advantage-tone] > span {
+  color: inherit;
+}
+.advantage-pill {
+  color: #172117;
+}
+
 .position-state > small {
   font-size: 8px;
   color: var(--muted);

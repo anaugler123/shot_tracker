@@ -59,6 +59,7 @@ import { useCloudStore, SignIn, TeamAccounts } from "./cloud";
 import { Dashboard } from "./Dashboard";
 import { TeamSettings } from "./TeamSettings";
 import { SheetShape } from "./SheetShape";
+import { endAdvantageTone } from "./endAdvantage";
 
 type Page =
   "Games" | "Dashboard" | "Live scoring" | "Video review" | "Team accounts";
@@ -1994,20 +1995,32 @@ function ScoreAnalysis({ game: g }: { game: Game }) {
   const advantage = states.filter(
     (s) => s.us > s.them || (s.us === s.them && s.hammer),
   ).length;
+  const advantagePercent = Math.round((advantage / states.length) * 100);
   return (
     <section className="panel analysis-panel">
       <div className="panel-heading">
         <div>
           <h2>Score and hammer by end</h2>
         </div>
-        <span className="pill neutral">
-          {Math.round((advantage / states.length) * 100)}% IN ADVANTAGE
+        <span
+          className="pill advantage-pill"
+          style={{
+            background: `color-mix(in srgb, var(--end-good) ${advantagePercent}%, var(--end-bad))`,
+          }}
+        >
+          {advantagePercent}% IN ADVANTAGE
         </span>
       </div>
       <div className="position-timeline">
         {states.map((s, i) => (
           <div
-            className={`position-state ${s.us > s.them || (s.us === s.them && s.hammer) ? "advantage" : ""}`}
+            className="position-state"
+            data-advantage-tone={endAdvantageTone(
+              s.us - s.them,
+              s.hammer,
+              i,
+              g.ends,
+            )}
             key={i}
           >
             <small>{s.label}</small>
