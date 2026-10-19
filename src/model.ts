@@ -268,3 +268,42 @@ export function decodeBackup(raw: string): Store {
   }
   return data as Store;
 }
+
+export type GameSort = "newest" | "oldest" | "event";
+export function groupGames(games: Game[], sort: GameSort = "newest") {
+  const byDate = (a: Game, b: Game) =>
+    !a.date
+      ? !b.date
+        ? a.opponent.localeCompare(b.opponent)
+        : 1
+      : !b.date
+        ? -1
+        : (sort === "oldest"
+            ? a.date.localeCompare(b.date)
+            : b.date.localeCompare(a.date)) ||
+          a.opponent.localeCompare(b.opponent);
+  const groups = new Map<string, Game[]>();
+  for (const game of games) {
+    const name = game.event.trim() || "Untitled event";
+    groups.set(name, [...(groups.get(name) || []), game]);
+  }
+  return [...groups]
+    .map(([event, games]) => ({ event, games: games.sort(byDate) }))
+    .sort((a, b) => {
+      if (sort === "event") return a.event.localeCompare(b.event);
+      const date = (g: Game[]) => g.find((game) => !!game.date)?.date || "";
+      const ad = date(a.games),
+        bd = date(b.games);
+      return (
+        (!ad
+          ? !bd
+            ? 0
+            : 1
+          : !bd
+            ? -1
+            : sort === "oldest"
+              ? ad.localeCompare(bd)
+              : bd.localeCompare(ad)) || a.event.localeCompare(b.event)
+      );
+    });
+}

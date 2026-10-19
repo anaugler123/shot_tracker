@@ -10,7 +10,6 @@ import {
   ChevronDown,
   ChevronRight,
   CircleHelp,
-  Clock3,
   FileSpreadsheet,
   Flag,
   LayoutGrid,
@@ -39,18 +38,20 @@ import {
   total,
   hammerAt,
   nextShot,
-  videoId,
   timeLabel,
   parseTime,
   sameGame,
   saveGames,
   decodeBackup,
+  groupGames,
+  type GameSort,
   type Game,
   type Shot,
 } from "./model";
 import { type ImportResult } from "./importer";
 import sample from "./sample.json";
 import "./style.css";
+import { VideoRoom } from "./VideoReview";
 
 type Page = "Games" | "Live scoring" | "Player insights" | "Video review";
 const today = () => new Date().toLocaleDateString("en-CA");
@@ -290,17 +291,22 @@ function App() {
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     setNotice("Backup downloaded. Keep this file somewhere safe.");
   }
-  const allShots = games.flatMap((g) => g.shots);
+
   const current = games.find((g) => g.id === selected) || games[0];
+  const [eventFilter, setEventFilter] = useState("all");
+  const [gameSort, setGameSort] = useState<GameSort>("newest");
   const filtered = [...games]
     .sort((a, b) => b.date.localeCompare(a.date))
     .filter(
       (g) =>
         (showSamples || !g.sample) &&
+        (eventFilter === "all" || g.event === eventFilter) &&
         `${g.event} ${g.opponent} ${g.date}`
           .toLowerCase()
           .includes(search.toLowerCase()),
     );
+  const eventGroups = groupGames(filtered, gameSort);
+  const allShots = filtered.flatMap((g) => g.shots);
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -315,7 +321,7 @@ function App() {
           <Stone />
           <span>
             hack<span className="brand-dot">.</span>
-            <small>CURLING, WITH CLARITY</small>
+            <small>CURLING SHOT TRACKER</small>
           </span>
         </a>
         <div className="workspace-label">WORKSPACE</div>
@@ -323,11 +329,11 @@ function App() {
           <span className="team-icon">N</span>
           <div>
             <strong>Our team</strong>
-            <small>Four players. One team.</small>
+            <small>Four-player curling</small>
           </div>
           <ShieldCheck size={16} />
         </div>
-        <div className="nav-label">YOUR GAME</div>
+        <div className="nav-label">NAVIGATION</div>
         <nav>
           {(
             [
@@ -355,8 +361,11 @@ function App() {
           <span className="tiny-icon">
             <ShieldCheck size={19} />
           </span>
-          <strong>Your game, safely saved.</strong>
-          <p>Scores stay on this device, even when the rink Wi-Fi doesn’t.</p>
+          <strong>Stored on this device</strong>
+          <p>
+            Scores are saved in this browser. Export a backup to keep a separate
+            copy.
+          </p>
           <span className="local-tag">LOCAL PROTOTYPE</span>
         </div>
         <button className="backup-button" onClick={exportBackup}>
@@ -431,11 +440,11 @@ function App() {
             <>
               <div className="page-heading">
                 <div>
-                  <div className="eyebrow">THE TEAM WORKSPACE</div>
-                  <h1>
-                    A better read on your game<span>.</span>
-                  </h1>
-                  <p>Every shot tells a story. Bring yours together.</p>
+                  <div className="eyebrow">TEAM</div>
+                  <h1>Games</h1>
+                  <p>
+                    View games by event, record shots, or import a workbook.
+                  </p>
                 </div>
                 <div className="heading-actions">
                   <button
@@ -463,7 +472,7 @@ function App() {
                   <span>
                     <span className="sample-dot" /> EXAMPLE WORKSPACE
                   </span>
-                  <p>Explore your NextGen Classic data, or start a new game.</p>
+                  <p>NextGen Classic example data is included.</p>
                   <button onClick={() => setShowSamples(!showSamples)}>
                     {showSamples ? "Hide examples" : "Show examples"}{" "}
                     <ChevronRight size={14} />
@@ -473,8 +482,8 @@ function App() {
               <div className="stat-grid">
                 <Stat
                   label="GAMES TRACKED"
-                  value={games.length}
-                  sub={`${new Set(games.map((g) => g.event)).size} event${new Set(games.map((g) => g.event)).size === 1 ? "" : "s"} in your workspace`}
+                  value={filtered.length}
+                  sub={`${new Set(filtered.map((g) => g.event)).size} event${new Set(filtered.map((g) => g.event)).size === 1 ? "" : "s"} in your workspace`}
                   icon={<LayoutGrid size={19} />}
                 />
                 <Stat
@@ -491,7 +500,7 @@ function App() {
                 <Stat
                   label="SHOTS SCORED"
                   value={allShots.filter((s) => s.score !== null).length}
-                  sub="Every recorded shot, one place"
+                  sub="Shots with a numeric score"
                   icon={<Activity size={19} />}
                 />
                 <Stat
@@ -506,10 +515,9 @@ function App() {
                   <div className="section-heading">
                     <div>
                       <h2>
-                        Your games{" "}
-                        <span className="count">{filtered.length}</span>
+                        Games <span className="count">{filtered.length}</span>
                       </h2>
-                      <p>The big picture starts one shot at a time.</p>
+                      <p>Select a game to view or edit its shots.</p>
                     </div>
                   </div>
                   <div className="list-toolbar">
@@ -522,23 +530,60 @@ function App() {
                         onChange={(e) => setSearch(e.target.value)}
                       />
                     </div>
-                    <span className="sort-label">
-                      Recent first <ChevronDown size={14} />
-                    </span>
+                    <select
+                      aria-label="Filter games by event"
+                      className="event-filter"
+                      value={eventFilter}
+                      onChange={(e) => setEventFilter(e.target.value)}
+                    >
+                      <option value="all">All events</option>
+                      {[...new Set(games.map((g) => g.event))]
+                        .sort()
+                        .map((event) => (
+                          <option key={event} value={event}>
+                            {event}
+                          </option>
+                        ))}
+                    </select>
+                    <select
+                      aria-label="Sort games"
+                      className="game-sort"
+                      value={gameSort}
+                      onChange={(e) => setGameSort(e.target.value as GameSort)}
+                    >
+                      <option value="newest">Newest first</option>
+                      <option value="oldest">Oldest first</option>
+                      <option value="event">Event A–Z</option>
+                    </select>
                   </div>
                   <div className="game-list">
                     {filtered.length ? (
-                      filtered.map((g) => (
-                        <GameCard
-                          key={g.id}
-                          game={g}
-                          onClick={() => openGame(g.id)}
-                        />
+                      eventGroups.map((group) => (
+                        <section
+                          className="event-group"
+                          key={group.event}
+                          aria-label={`${group.event} games`}
+                        >
+                          <div className="event-group-heading">
+                            <h3>{group.event}</h3>
+                            <span>
+                              {group.games.length} game
+                              {group.games.length === 1 ? "" : "s"}
+                            </span>
+                          </div>
+                          {group.games.map((g) => (
+                            <GameCard
+                              key={g.id}
+                              game={g}
+                              onClick={() => openGame(g.id)}
+                            />
+                          ))}
+                        </section>
                       ))
                     ) : (
                       <div className="empty">
                         <Stone />
-                        <h3>Your next game starts here.</h3>
+                        <h3>No games</h3>
                         <p>
                           {search
                             ? "No games match your search."
@@ -557,18 +602,11 @@ function App() {
                 <aside className="dashboard-aside">
                   <div className="feature-card">
                     <div className="feature-top">
-                      <span className="pill light">BUILT FOR THE BENCH</span>
+                      <span className="pill light">SCORING</span>
                       <Target size={20} />
                     </div>
-                    <h2>
-                      Less spreadsheet.
-                      <br />
-                      More game.
-                    </h2>
-                    <p>
-                      Stay with the action. A focused scoring workspace keeps
-                      your next shot just a tap away.
-                    </p>
+                    <h2>Live scoring</h2>
+                    <p>Record shots, edit scores, and update the scoreboard.</p>
                     <div className="house-art">
                       <div className="house-ring outer">
                         <div className="house-ring middle">
@@ -594,10 +632,10 @@ function App() {
                     <div className="import-icon">
                       <FileSpreadsheet size={24} />
                     </div>
-                    <h3>Your history belongs here.</h3>
+                    <h3>Import spreadsheets</h3>
                     <p>
-                      Bring in your scored shot trackers. Preview players,
-                      scores, and games before importing.
+                      Import games from your existing tracker template. Review
+                      the data before saving.
                     </p>
                     <button
                       onClick={() => file.current?.click()}
@@ -618,8 +656,8 @@ function App() {
               </div>
               <section className="roster-strip">
                 <div>
-                  <span className="eyebrow">ONE TEAM, FOUR PERSPECTIVES</span>
-                  <h2>Know your players’ next edge.</h2>
+                  <span className="eyebrow">TEAM</span>
+                  <h2>Player statistics</h2>
                 </div>
                 <div className="roster-avatars">
                   {(current?.players || positions).map((n, i) => (
@@ -630,7 +668,7 @@ function App() {
                   className="text-button"
                   onClick={() => setPage("Player insights")}
                 >
-                  Explore player insights <ArrowRight size={17} />
+                  View player insights <ArrowRight size={17} />
                 </button>
               </section>
             </>
@@ -662,7 +700,10 @@ function App() {
               focusId={videoFocus}
               game={current}
               games={games}
-              onSelect={setSelected}
+              onSelect={(id) => {
+                setVideoFocus("");
+                setSelected(id);
+              }}
               onChange={patch}
             />
           ) : (
@@ -670,7 +711,7 @@ function App() {
           )}
           <footer>
             <span>
-              <Stone small /> MADE FOR THE WAY YOU COACH.
+              <Stone small /> CURLING SHOT TRACKER
             </span>
             <span>Hack · Prototype 01</span>
           </footer>
@@ -853,7 +894,7 @@ function EmptyStart({ onNew }: { onNew: () => void }) {
   return (
     <div className="empty large">
       <Stone />
-      <h1>Let’s get on the ice.</h1>
+      <h1>No game selected</h1>
       <p>Create a game to start scoring and reviewing shots.</p>
       <button className="button primary" onClick={onNew}>
         <Plus size={17} /> New game
@@ -873,7 +914,7 @@ function NewGame({
   return (
     <Modal title="Start a new game" onClose={onClose}>
       <p className="modal-description">
-        Set your lineup. We’ll take care of the shot order.
+        Choose the players, game length, and starting hammer.
       </p>
       <form
         onSubmit={(e) => {
@@ -1196,10 +1237,8 @@ function GameRoom({
     <>
       <div className="page-heading compact">
         <div>
-          <div className="eyebrow">THE SCORING WORKSPACE</div>
-          <h1>
-            One shot at a time<span>.</span>
-          </h1>
+          <div className="eyebrow">GAME</div>
+          <h1>Live scoring</h1>
           <p>
             {g.event} <span className="inline-dot">·</span> {dateLabel(g.date)}{" "}
             <span className="inline-dot">·</span> {g.venue}
@@ -1288,7 +1327,7 @@ function GameRoom({
         <section className="panel end-panel">
           <div className="panel-heading">
             <div>
-              <span className="eyebrow">THE END AT A GLANCE</span>
+              <span className="eyebrow">CURRENT END</span>
               <h2>Shot log</h2>
             </div>
             <select
@@ -1630,7 +1669,7 @@ function ShotForm({
           <textarea
             value={s.note}
             onChange={(e) => update({ note: e.target.value })}
-            placeholder="Anything worth coming back to…"
+            placeholder="Shot notes…"
             rows={2}
           />
         </label>
@@ -1752,7 +1791,7 @@ function ScoreAnalysis({ game: g }: { game: Game }) {
       <div className="panel-heading">
         <div>
           <span className="eyebrow">SCOREBOARD ANALYSIS</span>
-          <h2>The game’s momentum</h2>
+          <h2>Score and hammer by end</h2>
         </div>
         <span className="pill neutral">
           {Math.round((advantage / states.length) * 100)}% IN ADVANTAGE
@@ -1926,11 +1965,9 @@ function Insights({
     <>
       <div className="page-heading">
         <div>
-          <div className="eyebrow">FIND YOUR NEXT EDGE</div>
-          <h1>
-            The story behind the shots<span>.</span>
-          </h1>
-          <p>Understand the patterns. Come back with a plan.</p>
+          <div className="eyebrow">TEAM STATISTICS</div>
+          <h1>Player insights</h1>
+          <p>Filter player statistics by event, shot type, and turn.</p>
         </div>
         <span className="pill neutral">TEAM-WIDE VIEW</span>
       </div>
@@ -1996,7 +2033,7 @@ function Insights({
         <Stat
           label="FLAGGED FOR REVIEW"
           value={shots.filter((s) => s.review).length}
-          sub="Return to the moments that matter"
+          sub="Shots marked for review"
           icon={<Flag size={19} />}
         />
       </div>
@@ -2005,7 +2042,7 @@ function Insights({
           <div className="panel-heading">
             <div>
               <span className="eyebrow">SHOT TYPE PERFORMANCE</span>
-              <h2>Where you’re finding success</h2>
+              <h2>Shooting percentage by type</h2>
             </div>
           </div>
           {types.length ? (
@@ -2037,7 +2074,7 @@ function Insights({
           <div className="panel-heading">
             <div>
               <span className="eyebrow">MISS TENDENCIES</span>
-              <h2>What to work on next</h2>
+              <h2>Deficiency counts</h2>
             </div>
           </div>
           {breakdown.map(({ label, count }) => (
@@ -2077,7 +2114,7 @@ function Insights({
       <section className="panel">
         <div className="panel-heading">
           <div>
-            <span className="eyebrow">GO BEYOND THE NUMBERS</span>
+            <span className="eyebrow">SHOT RECORDS</span>
             <h2>
               Matching shots <span className="count">{records.length}</span>
             </h2>
@@ -2169,237 +2206,4 @@ function ShotTable({
     </div>
   );
 }
-function VideoRoom({
-  game: g,
-  games,
-  onSelect,
-  onChange,
-  focusId,
-}: {
-  focusId?: string;
-  game: Game;
-  games: Game[];
-  onSelect: (id: string) => void;
-  onChange: (g: Game) => boolean;
-}) {
-  const [url, setUrl] = useState(g.video);
-  const focused = g.shots.find((s) => s.id === focusId) || null;
-  const [shot, setShot] = useState<Shot | null>(focused);
-  const [time, setTime] = useState(timeLabel(focused?.timestamp ?? null));
-  const [error, setError] = useState("");
-  const [player, setPlayer] = useState("all");
-  const [onlyFlagged, setOnlyFlagged] = useState(false);
-  const id = videoId(g.video);
-  const [playAt, setPlayAt] = useState(
-    Math.max(0, (focused?.timestamp ?? 5) - 5),
-  );
-  const [playKey, setPlayKey] = useState(0);
-  const records = g.shots
-    .filter(
-      (s) =>
-        (player === "all" || s.position === Number(player)) &&
-        (!onlyFlagged || !!s.review),
-    )
-    .sort(
-      (a, b) => a.end - b.end || a.position - b.position || a.stone - b.stone,
-    )
-    .map((s) => ({ g, s }));
-  function choose(s: Shot) {
-    setShot(s);
-    setTime(timeLabel(s.timestamp));
-    if (s.timestamp !== null) {
-      setPlayAt(Math.max(0, s.timestamp - 5));
-      setPlayKey((k) => k + 1);
-    }
-    setError("");
-  }
-  return (
-    <>
-      <div className="page-heading compact">
-        <div>
-          <div className="eyebrow">WATCH. REFLECT. IMPROVE.</div>
-          <h1>
-            Back to the moment<span>.</span>
-          </h1>
-          <p>Connect the numbers with what happened on the ice.</p>
-        </div>
-        <GamePicker game={g} games={games} onSelect={onSelect} />
-      </div>
-      <div className="video-grid">
-        <section className="panel video-panel">
-          <form
-            className="video-url"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (url && !videoId(url)) {
-                setError("Enter a valid YouTube video or livestream URL.");
-                return;
-              }
-              onChange({ ...g, video: url });
-              setError("");
-            }}
-          >
-            <label>
-              YouTube game stream
-              <input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://www.youtube.com/watch?v=…"
-              />
-            </label>
-            <button className="button primary">
-              {g.video ? "Update" : "Attach video"}
-            </button>
-          </form>
-          <div className="video-container">
-            {id && navigator.onLine ? (
-              <iframe
-                key={id + playKey}
-                title="Game video"
-                src={`https://www.youtube-nocookie.com/embed/${id}?start=${playAt}&rel=0`}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              />
-            ) : (
-              <div className="video-placeholder">
-                <span>
-                  <Video size={32} />
-                </span>
-                <h3>
-                  {id
-                    ? "Video needs an internet connection"
-                    : "Every shot has a story."}
-                </h3>
-                <p>
-                  {id
-                    ? "Your shot data and timestamps remain available offline."
-                    : "Attach a YouTube stream, then select a shot below to add its timestamp."}
-                </p>
-              </div>
-            )}
-          </div>
-          <div className="video-footnote">
-            <Clock3 size={15} />
-            <span>
-              Selecting a timestamp starts playback five seconds before the
-              shot. YouTube availability and embedding depend on the stream.
-            </span>
-          </div>
-        </section>
-        <section className="panel timestamp-panel">
-          <div className="panel-heading">
-            <div>
-              <span className="eyebrow">SHOT BOOKMARK</span>
-              <h2>{shot ? `Shot ${shot.id}` : "Find your moment"}</h2>
-            </div>
-            <Flag size={19} />
-          </div>
-          {shot ? (
-            <>
-              <div className="selected-shot">
-                <Avatar name={g.players[shot.position]} index={shot.position} />
-                <div>
-                  <strong>{g.players[shot.position]}</strong>
-                  <p>
-                    End {shot.end} · {shot.type}
-                  </p>
-                </div>
-                <span className={`score-badge score-${shot.score ?? "none"}`}>
-                  {shot.score ?? "—"}
-                  <small>/5</small>
-                </span>
-              </div>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const parsed = parseTime(time);
-                  if (Number.isNaN(parsed)) {
-                    setError("Use m:ss or h:mm:ss.");
-                    return;
-                  }
-                  const updated = { ...shot, timestamp: parsed };
-                  if (
-                    onChange({
-                      ...g,
-                      shots: g.shots.map((s) =>
-                        s.id === shot.id ? updated : s,
-                      ),
-                    })
-                  ) {
-                    setShot(updated);
-                    setError("Timestamp saved on this device.");
-                  }
-                }}
-              >
-                <label>
-                  Video timestamp
-                  <input
-                    aria-label="Shot video timestamp"
-                    placeholder="e.g. 24:35"
-                    value={time}
-                    onChange={(e) => setTime(e.target.value)}
-                  />
-                </label>
-                <p className="helper">
-                  Use the time shown in the video player. You can bookmark shots
-                  while reviewing or enter times recorded during the game.
-                </p>
-                <button className="button primary full-width">
-                  <Check size={16} /> Save timestamp
-                </button>
-              </form>
-              {shot.note && <blockquote>{shot.note}</blockquote>}
-            </>
-          ) : (
-            <div className="timestamp-empty">
-              <Target size={28} />
-              <p>Select a shot from the log to attach its video timestamp.</p>
-            </div>
-          )}
-          <p className="helper">
-            Live rink scoring and video review use the same shot records. Stream
-            delay does not change your scores.
-          </p>
-        </section>
-      </div>
-      {error && (
-        <p className="inline-success" role="status">
-          {error}
-        </p>
-      )}
-      <section className="panel">
-        <div className="panel-heading">
-          <div>
-            <span className="eyebrow">THE GAME, SHOT BY SHOT</span>
-            <h2>Shot timeline</h2>
-          </div>
-          <div className="timeline-filters">
-            <select
-              aria-label="Video player filter"
-              value={player}
-              onChange={(e) => setPlayer(e.target.value)}
-            >
-              <option value="all">All players</option>
-              {g.players.map((n, i) => (
-                <option value={i} key={i}>
-                  {n}
-                </option>
-              ))}
-            </select>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={onlyFlagged}
-                onChange={(e) => setOnlyFlagged(e.target.checked)}
-              />{" "}
-              Flagged only
-            </label>
-          </div>
-        </div>
-        <ShotTable records={records} onClick={(_, s) => choose(s)} />
-      </section>
-    </>
-  );
-}
-
 createRoot(document.getElementById("root")!).render(<App />);

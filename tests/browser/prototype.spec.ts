@@ -4,7 +4,7 @@ test("coach records, corrects and persists shots and played scoreboard ends", as
 }) => {
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "A better read on your game." }),
+    page.getByRole("heading", { name: "Games", level: 1 }),
   ).toBeVisible();
   await expect(page.getByText("306", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "New game", exact: true }).click();
@@ -97,14 +97,14 @@ test("production app reloads offline after its first visit", async ({
   await context.setOffline(true);
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "A better read on your game." }),
+    page.getByRole("heading", { name: "Games", level: 1 }),
   ).toBeVisible();
   await expect(page.getByText("Offline · saving on device")).toBeVisible();
   await page
     .getByRole("button", { name: "Player insights", exact: true })
     .click();
   await expect(
-    page.getByRole("heading", { name: "The story behind the shots." }),
+    page.getByRole("heading", { name: "Player insights", level: 1 }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Live scoring", exact: true }).click();
   await page.locator(".log-row").first().click();
@@ -123,7 +123,7 @@ test("iPad layout stays within the viewport and supports video bookmarks", async
   await page.setViewportSize({ width: 1024, height: 768 });
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "A better read on your game." }),
+    page.getByRole("heading", { name: "Games", level: 1 }),
   ).toBeVisible();
   expect(
     await page.evaluate(
@@ -131,13 +131,13 @@ test("iPad layout stays within the viewport and supports video bookmarks", async
     ),
   ).toBe(true);
   await page.getByRole("button", { name: "Video review", exact: true }).click();
-  await page.locator(".table-link").first().click();
+  await page.locator(".review-shot-item").first().click();
   await page.getByLabel("Shot video timestamp", { exact: true }).fill("24:35");
   await page.getByRole("button", { name: "Save timestamp" }).click();
-  await expect(page.getByRole("status")).toContainText("Timestamp saved");
+  await expect(page.getByRole("status")).toContainText("Shot 1A saved");
   await page.reload();
   await page.getByRole("button", { name: "Video review", exact: true }).click();
-  await page.locator(".table-link").first().click();
+  await page.locator(".review-shot-item").first().click();
   await expect(
     page.getByLabel("Shot video timestamp", { exact: true }),
   ).toHaveValue("24:35");

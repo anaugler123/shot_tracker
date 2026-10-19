@@ -22,6 +22,7 @@ Open the development server using your host's supported preview mechanism. An iP
 
 ## What you can try
 
+- Filter games by event and sort event groups by newest, oldest, or event name. Games are grouped under event headings.
 - Browse five example games from the supplied **NextGen Classic April 2026** tracker, containing 306 numeric shot scores. Example data is labeled and can be hidden. One malformed date remains unset rather than silently corrected.
 - Create an 8- or 10-end game, choose the four players and starting hammer, and record shots with automatic progression through the lineup. One extra end is supported.
 - Choose turn/target, draw or hit type, execution, independent 0–5 score, and deficiency. Open **Review flag, notes & video** for optional details and unscored picks/burnt rocks/throw-throughs.
@@ -29,7 +30,7 @@ Open the development server using your host's supported preview mechanism. An iP
 - Tap an end number to update the scoreboard. Explicitly distinguish a played blank end (0–0) from an unplayed/unknown end. Only one team may score in an end. Hammer carries through blank ends.
 - Import `.xlsx` workbooks using the supplied tracker template. Preview dates, player names, starting hammer and completed ends before committing. Reimports skip existing games; sample versions are replaced. Imports are processed locally and do not upload the workbook.
 - Filter team-wide player insights by player, event, draw/hit and turn/target. Open a matching shot in video review.
-- Attach a YouTube video or livestream URL; add an `m:ss` or `h:mm:ss` bookmark per shot. Selecting a bookmark cues the video five seconds before the shot. Videos may disallow embedding or be unavailable.
+- Attach a YouTube video or livestream URL. The player stays loaded while selecting shots in the adjacent list. Use **Capture time, save & next** to timestamp successive shots without typing, or enter an `m:ss` / `h:mm:ss` bookmark manually. Filter by player, end, review flag, or missing timestamp. Previous/next controls follow the filtered list. Pre-roll is adjustable from 0–15 seconds. Shot notes and review flags are editable; switching shots prompts to save or discard unsaved edits. YouTube playback depends on stream availability and embedding permissions. Tests mock the YouTube API to verify capture, seeking, and player persistence without a live stream.
 - Export and restore JSON backups. Restore adds missing games and preserves existing corrections.
 
 ## Prototype boundaries

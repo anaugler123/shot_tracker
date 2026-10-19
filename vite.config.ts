@@ -10,7 +10,7 @@ export default defineConfig({
       manifest: {
         name: "Hack Curling Shot Tracker",
         short_name: "Hack",
-        description: "Curling scoring and player review",
+        description: "Curling shot entry, team statistics, and video review",
         theme_color: "#173e35",
         background_color: "#f6f7f4",
         display: "standalone",

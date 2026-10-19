@@ -123,3 +123,35 @@ test("backups are validated before restoring state", async () => {
     /valid Hack/,
   );
 });
+
+test("groups games by event and sorts dates and events without putting missing dates first", async () => {
+  const { groupGames } = await import("../src/model");
+  const base = game();
+  const games = [
+    { ...base, id: "1", event: "Spring", date: "2026-04-25" },
+    { ...base, id: "2", event: "Fall", date: "2026-09-25" },
+    { ...base, id: "3", event: "Spring", date: "2026-04-26" },
+    { ...base, id: "4", event: "Spring", date: "" },
+  ];
+  assert.deepEqual(
+    groupGames(games).map((g) => g.event),
+    ["Fall", "Spring"],
+  );
+  assert.deepEqual(
+    groupGames(games)[1].games.map((g) => g.id),
+    ["3", "1", "4"],
+  );
+  assert.deepEqual(
+    groupGames(games, "oldest").map((g) => g.event),
+    ["Spring", "Fall"],
+  );
+  assert.deepEqual(
+    groupGames(games, "oldest")[0].games.map((g) => g.id),
+    ["1", "3", "4"],
+  );
+  assert.deepEqual(
+    groupGames(games, "event").map((g) => g.event),
+    ["Fall", "Spring"],
+  );
+  assert.equal(games[0].id, "1");
+});
