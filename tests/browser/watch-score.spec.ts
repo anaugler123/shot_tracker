@@ -25,9 +25,15 @@ function fixture(shots = 0): Game {
     })),
   };
 }
-async function setup(page: Page, game = fixture(), fallback = false) {
+async function setup(
+  page: Page,
+  game = fixture(),
+  fallback = false,
+  live = false,
+) {
   await page.addInitScript(
     ({ game, fallback }) => {
+      if (window.top !== window) return;
       localStorage.setItem(
         "hack.store.v1",
         JSON.stringify({ version: 1, games: [game] }),
@@ -46,19 +52,30 @@ async function setup(page: Page, game = fixture(), fallback = false) {
     }),
   );
   await page.goto("/");
-  await page.getByRole("button", { name: "Video review", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: live ? "Live scoring" : "Video review",
+      exact: true,
+    })
+    .click();
+  if (!live) {
+    await expect(
+      page.getByRole("button", { name: "Play selected shot", exact: true }),
+    ).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__instances))
+      .toBe(1);
+  }
+  await page
+    .getByRole("button", { name: "Watch & score", exact: true })
+    .click();
+  if (live && !game.video) return;
   await expect(
-    page.getByRole("button", { name: "Play selected shot", exact: true }),
+    page.getByRole("dialog", { name: "Watch and score", exact: true }),
   ).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => (window as any).__instances))
     .toBe(1);
-  await page
-    .getByRole("button", { name: "Watch & score", exact: true })
-    .click();
-  await expect(
-    page.getByRole("dialog", { name: "Watch and score", exact: true }),
-  ).toBeVisible();
 }
 async function fillShot(panel: Locator) {
   await panel.getByRole("button", { name: "CW C", exact: true }).click();
@@ -302,14 +319,16 @@ test("bottom scoring panel keeps draft fields, saves shots, and remembers its po
     panel.getByRole("button", { name: "Score 5", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   const bounds = await panel.boundingBox();
-  expect(bounds!.height).toBeLessThanOrEqual(768 * 0.34);
-  expect(bounds!.y).toBeGreaterThan(768 * 0.6);
+  expect(bounds!.height).toBeLessThanOrEqual(768 * 0.4);
+  expect(bounds!.y).toBeGreaterThan(768 * 0.5);
   await expect(
-    panel.getByRole("combobox", { name: "Turn / target", exact: true }),
-  ).toHaveValue("CW C");
+    panel.getByRole("button", { name: "CW C", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
   await expect(
-    panel.getByRole("combobox", { name: "Shot type", exact: true }),
-  ).toHaveValue("Draw:Draw");
+    panel
+      .locator(".choice-grid.types")
+      .getByRole("button", { name: "Draw", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
   await panel.locator(".shot-selection summary").click();
   await expect(panel.getByLabel("Shot end", { exact: true })).toBeVisible();
   await panel.locator(".shot-selection summary").click();
@@ -327,19 +346,12 @@ test("bottom scoring panel keeps draft fields, saves shots, and remembers its po
   await expect(panel.locator(".watch-score-heading .shot-code")).toHaveText(
     "1B",
   );
-  await panel
-    .getByRole("combobox", { name: "Turn / target", exact: true })
-    .selectOption("CCW S");
-  await panel
-    .getByRole("combobox", { name: "Shot type", exact: true })
-    .selectOption("Hit:Hit & Roll");
-  await panel
-    .getByRole("combobox", { name: "Execution", exact: true })
-    .selectOption("Partial");
+  await panel.getByRole("button", { name: "CCW S", exact: true }).click();
+  await panel.getByRole("button", { name: "Hit", exact: true }).click();
+  await panel.getByRole("button", { name: "Hit & Roll", exact: true }).click();
+  await panel.getByRole("button", { name: "Partial", exact: true }).click();
   await panel.getByRole("button", { name: "Score 3", exact: true }).click();
-  await panel
-    .getByRole("combobox", { name: "Deficiency / outcome", exact: true })
-    .selectOption("Overcurl");
+  await panel.getByRole("button", { name: "Overcurl", exact: true }).click();
   await panel
     .getByRole("button", { name: "Save & next shot", exact: true })
     .click();
@@ -420,7 +432,7 @@ test("video shortcuts work from scoring buttons without saving or changing field
     panel.getByRole("button", { name: "Score 5", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await panel.getByLabel("Scoring panel position").selectOption("bottom");
-  await panel.getByRole("combobox", { name: "Execution", exact: true }).focus();
+  await panel.getByLabel("Scoring panel position").focus();
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("k");
   expect(await page.evaluate(() => (window as any).__seeks.at(-1))).toBe(0);
@@ -444,4 +456,92 @@ test("video shortcuts work from scoring buttons without saving or changing field
     .focus();
   await page.keyboard.press("k");
   expect(await page.evaluate(() => (window as any).__played)).toBe(1);
+});
+
+test("live scoring opens video scoring directly and returns with saved shots", async ({
+  page,
+}) => {
+  await setup(page, fixture(), false, true);
+  expect(
+    await page.evaluate(() =>
+      document.fullscreenElement?.classList.contains("watch-surface"),
+    ),
+  ).toBe(true);
+  const panel = page.locator(".watch-score-panel");
+  await fillShot(panel);
+  await panel
+    .getByRole("button", { name: "Save & next shot", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Close watch and score", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Live scoring", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".shot-panel .shot-code")).toHaveText("1B");
+  expect(await page.evaluate(() => (window as any).__paused)).toBe(1);
+  expect(
+    await page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem("hack.store.v1")!).games[0].shots[0]
+          .timestamp,
+    ),
+  ).toBe(100);
+  await page
+    .getByRole("button", { name: "Watch & score", exact: true })
+    .click();
+  await expect(panel.locator(".shot-code")).toHaveText("1B");
+  expect(await page.evaluate(() => (window as any).__instances)).toBe(1);
+  await page
+    .getByRole("button", { name: "Close watch and score", exact: true })
+    .click();
+  await page
+    .locator(".shot-panel")
+    .getByRole("button", { name: "CW C", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Watch & score", exact: true })
+    .click();
+  await expect(page.locator(".watch-surface")).toHaveCount(0);
+  await expect(page.getByRole("status")).toContainText(
+    "Save your current shot",
+  );
+  await expect(
+    page
+      .locator(".shot-panel")
+      .getByRole("button", { name: "CW C", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("live scoring can attach a stream before opening watch and score", async ({
+  page,
+}) => {
+  await setup(page, { ...fixture(), video: "" }, true, true);
+  const modal = page.getByRole("dialog", { name: "Game video", exact: true });
+  await expect(modal).toBeVisible();
+  await modal
+    .getByRole("textbox", { name: "YouTube game stream", exact: true })
+    .fill("https://www.youtube.com/watch?v=abcdefghijk");
+  await modal
+    .getByRole("button", { name: "Attach video", exact: true })
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "Watch and score", exact: true }),
+  ).toBeVisible();
+  await expect(modal).toHaveCount(0);
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__instances))
+    .toBe(1);
+  await fillShot(page.locator(".watch-score-panel"));
+  await page
+    .locator(".watch-score-panel")
+    .getByRole("button", { name: "Save & next shot", exact: true })
+    .click();
+  await expect(page.locator(".watch-score-heading .shot-code")).toHaveText(
+    "1B",
+  );
+  await page
+    .getByRole("button", { name: "Close watch and score", exact: true })
+    .click();
+  await expect(page.locator(".shot-panel .shot-code")).toHaveText("1B");
 });

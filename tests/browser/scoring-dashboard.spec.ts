@@ -38,7 +38,7 @@ test("saving the eighth shot prompts for a score and advances the end without a 
   );
   await page.goto("/");
   await page.getByRole("button", { name: "Live scoring", exact: true }).click();
-  await expect(page.locator(".shot-code")).toHaveText("1H");
+  await expect(page.locator(".shot-panel .shot-code")).toHaveText("1H");
   await page.getByRole("button", { name: "CW C", exact: true }).click();
   await page.getByRole("button", { name: "Draw", exact: true }).last().click();
   await page.getByRole("button", { name: "Make", exact: true }).first().click();

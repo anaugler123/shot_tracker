@@ -1353,6 +1353,7 @@ function GameRoom({
   onReview: () => void;
 }) {
   const [edit, setEdit] = useState<Shot | null>(null);
+  const [shotDirty, setShotDirty] = useState(false);
   const [end, setEnd] = useState(Math.min(nextShot(g).end, g.ends + 1));
   const [advanceEnd, setAdvanceEnd] = useState(false);
   const [finishRequested, setFinishRequested] = useState(false);
@@ -1400,6 +1401,24 @@ function GameRoom({
           <button className="text-button" onClick={onDashboard}>
             Game dashboard
           </button>
+          <VideoRoom
+            launcherOnly
+            game={g}
+            games={games}
+            onSelect={onSelect}
+            beforeWatch={() => {
+              if (!shotDirty) return true;
+              setToast("Save your current shot before opening video scoring.");
+              return false;
+            }}
+            onChange={(updated) => {
+              if (!onChange(updated)) return false;
+              setEdit(null);
+              setEnd(Math.min(nextShot(updated).end, updated.ends + 1));
+              setToast("");
+              return true;
+            }}
+          />
           <button className="text-button" onClick={onReview}>
             <Video size={16} /> Video review
           </button>
@@ -1450,6 +1469,7 @@ function GameRoom({
             shot={current}
             onSelect={setEdit}
             editing={!!edit}
+            onDirtyChange={setShotDirty}
             onCancel={() => setEdit(null)}
             onSave={(s) => {
               const exists = g.shots.some((x) => x.id === s.id);
