@@ -23,6 +23,7 @@ export function ShotForm({
   onCancel,
   onDirtyChange,
   captureTime,
+  compact = false,
 }: {
   game: Game;
   shot: Shot;
@@ -32,6 +33,7 @@ export function ShotForm({
   onCancel: () => void;
   onDirtyChange?: (dirty: boolean) => void;
   captureTime?: () => number | null;
+  compact?: boolean;
 }) {
   const [s, setS] = useState({ ...shot });
   const [unscored, setUnscored] = useState(shot.score === null && !!shot.note);
@@ -52,6 +54,7 @@ export function ShotForm({
   const options = s.kind === "Draw" ? draws : hits;
   return (
     <form
+      className={compact ? "compact-shot-form" : undefined}
       onSubmit={(e) => {
         e.preventDefault();
         const ts = parseTime(stamp);
@@ -107,138 +110,213 @@ export function ShotForm({
           <span>{stamp || "Time captured on save"}</span>
         </div>
       )}
-      <div className="shot-selectors">
-        <label>
-          End
-          <select
-            aria-label="Shot end"
-            value={s.end}
-            onChange={(e) => {
-              const n = Number(e.target.value);
-              onSelect(
-                g.shots.find(
-                  (x) => x.id === emptyShot(n, s.position, s.stone).id,
-                ) || emptyShot(n, s.position, s.stone),
-              );
-            }}
-          >
-            {Array.from({ length: g.ends + 1 }, (_, i) => (
-              <option key={i} value={i + 1}>
-                {i + 1}
-                {i === g.ends ? " · Extra" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Player
-          <select
-            aria-label="Shot player"
-            value={s.position}
-            onChange={(e) => {
-              const p = Number(e.target.value);
-              onSelect(
-                g.shots.find((x) => x.id === emptyShot(s.end, p, s.stone).id) ||
-                  emptyShot(s.end, p, s.stone),
-              );
-            }}
-          >
-            {g.players.map((p, i) => (
-              <option value={i} key={i}>
-                {p} · {positions[i]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Stone
-          <select
-            aria-label="Shot stone"
-            value={s.stone}
-            onChange={(e) => {
-              const st = Number(e.target.value);
-              onSelect(
-                g.shots.find(
-                  (x) => x.id === emptyShot(s.end, s.position, st).id,
-                ) || emptyShot(s.end, s.position, st),
-              );
-            }}
-          >
-            <option value={1}>First</option>
-            <option value={2}>Second</option>
-          </select>
-        </label>
-      </div>
-      <fieldset>
-        <legend>Turn / target</legend>
-        <div className="choice-grid turns">
-          {turns.map((t) => (
-            <button
-              key={t}
-              type="button"
-              aria-pressed={s.turn === t}
-              className={`choice ${s.turn === t ? "selected" : ""}`}
-              onClick={() => update({ turn: t })}
+      <details className="shot-selection" open={compact ? undefined : true}>
+        <summary>Change end / player / stone</summary>
+        <div className="shot-selectors">
+          <label>
+            End
+            <select
+              aria-label="Shot end"
+              value={s.end}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                onSelect(
+                  g.shots.find(
+                    (x) => x.id === emptyShot(n, s.position, s.stone).id,
+                  ) || emptyShot(n, s.position, s.stone),
+                );
+              }}
             >
-              {t}
-            </button>
-          ))}
-        </div>
-      </fieldset>
-      <fieldset>
-        <legend>Shot type</legend>
-        <div className="segmented">
-          <button
-            type="button"
-            className={s.kind === "Draw" ? "selected" : ""}
-            onClick={() =>
-              update({ kind: "Draw", type: s.kind === "Draw" ? s.type : "" })
-            }
-          >
-            Draw
-          </button>
-          <button
-            type="button"
-            className={s.kind === "Hit" ? "selected" : ""}
-            onClick={() =>
-              update({ kind: "Hit", type: s.kind === "Hit" ? s.type : "" })
-            }
-          >
-            Hit
-          </button>
-        </div>
-        <div className="choice-grid types">
-          {options.map((t) => (
-            <button
-              key={t}
-              type="button"
-              aria-pressed={s.type === t}
-              className={`choice ${s.type === t ? "selected" : ""}`}
-              onClick={() => update({ type: t })}
+              {Array.from({ length: g.ends + 1 }, (_, i) => (
+                <option key={i} value={i + 1}>
+                  {i + 1}
+                  {i === g.ends ? " · Extra" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Player
+            <select
+              aria-label="Shot player"
+              value={s.position}
+              onChange={(e) => {
+                const p = Number(e.target.value);
+                onSelect(
+                  g.shots.find(
+                    (x) => x.id === emptyShot(s.end, p, s.stone).id,
+                  ) || emptyShot(s.end, p, s.stone),
+                );
+              }}
             >
-              {t}
-            </button>
-          ))}
+              {g.players.map((p, i) => (
+                <option value={i} key={i}>
+                  {p} · {positions[i]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Stone
+            <select
+              aria-label="Shot stone"
+              value={s.stone}
+              onChange={(e) => {
+                const st = Number(e.target.value);
+                onSelect(
+                  g.shots.find(
+                    (x) => x.id === emptyShot(s.end, s.position, st).id,
+                  ) || emptyShot(s.end, s.position, st),
+                );
+              }}
+            >
+              <option value={1}>First</option>
+              <option value={2}>Second</option>
+            </select>
+          </label>
         </div>
-      </fieldset>
-      <div className="form-grid">
-        <fieldset>
-          <legend>Execution</legend>
-          <div className="choice-grid execution">
-            {executions.map((t) => (
+      </details>
+      {compact ? (
+        <>
+          <label>
+            Turn / target
+            <select
+              value={s.turn}
+              onChange={(e) => update({ turn: e.target.value })}
+            >
+              <option value="" disabled>
+                Choose…
+              </option>
+              {turns.map((t) => (
+                <option key={t}>{t}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Shot type
+            <select
+              value={s.type ? `${s.kind}:${s.type}` : ""}
+              onChange={(e) => {
+                const [kind, type] = e.target.value.split(":");
+                update({ kind: kind as Shot["kind"], type });
+              }}
+            >
+              <option value="" disabled>
+                Choose…
+              </option>
+              <optgroup label="Draw">
+                {draws.map((t) => (
+                  <option key={t} value={`Draw:${t}`}>
+                    {t}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Hit">
+                {hits.map((t) => (
+                  <option key={t} value={`Hit:${t}`}>
+                    {t}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          </label>
+        </>
+      ) : (
+        <>
+          <fieldset>
+            <legend>Turn / target</legend>
+            <div className="choice-grid turns">
+              {turns.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  aria-pressed={s.turn === t}
+                  className={`choice ${s.turn === t ? "selected" : ""}`}
+                  onClick={() => update({ turn: t })}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Shot type</legend>
+            <div className="segmented">
               <button
-                key={t}
                 type="button"
-                data-execution={t}
-                aria-pressed={s.execution === t}
-                className={`choice ${s.execution === t ? "selected" : ""}`}
-                onClick={() => update({ execution: t })}
+                className={s.kind === "Draw" ? "selected" : ""}
+                onClick={() =>
+                  update({
+                    kind: "Draw",
+                    type: s.kind === "Draw" ? s.type : "",
+                  })
+                }
               >
-                {t === "Xmiss" ? "Miss (Xmiss)" : t}
+                Draw
               </button>
-            ))}
-          </div>
-        </fieldset>
+              <button
+                type="button"
+                className={s.kind === "Hit" ? "selected" : ""}
+                onClick={() =>
+                  update({ kind: "Hit", type: s.kind === "Hit" ? s.type : "" })
+                }
+              >
+                Hit
+              </button>
+            </div>
+            <div className="choice-grid types">
+              {options.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  aria-pressed={s.type === t}
+                  className={`choice ${s.type === t ? "selected" : ""}`}
+                  onClick={() => update({ type: t })}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        </>
+      )}
+      <div className="form-grid">
+        {compact ? (
+          <label>
+            Execution
+            <select
+              value={s.execution}
+              onChange={(e) => update({ execution: e.target.value })}
+            >
+              <option value="" disabled>
+                Choose…
+              </option>
+              {executions.map((t) => (
+                <option key={t} value={t}>
+                  {t === "Xmiss" ? "Miss (Xmiss)" : t}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <fieldset>
+            <legend>Execution</legend>
+            <div className="choice-grid execution">
+              {executions.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  data-execution={t}
+                  aria-pressed={s.execution === t}
+                  className={`choice ${s.execution === t ? "selected" : ""}`}
+                  onClick={() => update({ execution: t })}
+                >
+                  {t === "Xmiss" ? "Miss (Xmiss)" : t}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        )}
         <fieldset>
           <legend>
             Shot score <span>0–5</span>
@@ -260,23 +338,40 @@ export function ShotForm({
           </div>
         </fieldset>
       </div>
-      <fieldset>
-        <legend>Deficiency / outcome</legend>
-        <div className="choice-grid deficiencies">
-          {deficiencies.map((t) => (
-            <button
-              key={t}
-              type="button"
-              data-deficiency={t}
-              aria-pressed={s.deficiency === t}
-              className={`choice ${s.deficiency === t ? "selected" : ""}`}
-              onClick={() => update({ deficiency: t })}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-      </fieldset>
+      {compact ? (
+        <label>
+          Deficiency / outcome
+          <select
+            value={s.deficiency}
+            onChange={(e) => update({ deficiency: e.target.value })}
+          >
+            <option value="" disabled>
+              Choose…
+            </option>
+            {deficiencies.map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <fieldset>
+          <legend>Deficiency / outcome</legend>
+          <div className="choice-grid deficiencies">
+            {deficiencies.map((t) => (
+              <button
+                key={t}
+                type="button"
+                data-deficiency={t}
+                aria-pressed={s.deficiency === t}
+                className={`choice ${s.deficiency === t ? "selected" : ""}`}
+                onClick={() => update({ deficiency: t })}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+      )}
       <details className="shot-details" open={undefined}>
         <summary>
           Review flag, notes & video <ChevronDown size={15} />

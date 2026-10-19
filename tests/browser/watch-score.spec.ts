@@ -42,7 +42,7 @@ async function setup(page: Page, game = fixture(), fallback = false) {
   await page.route("https://www.youtube.com/iframe_api", (route) =>
     route.fulfill({
       contentType: "text/javascript",
-      body: `window.__videoTime=100;window.__instances=0;window.__paused=0;window.__played=0;window.YT={Player:class{constructor(el,o){window.__instances++;this.frame=document.createElement('iframe');this.frame.src='about:blank';this.frame.style.width=o.width;this.frame.style.height=o.height;el.replaceWith(this.frame);queueMicrotask(()=>o.events.onReady({target:this}));}getIframe(){return this.frame}getCurrentTime(){return window.__videoTime}seekTo(){}playVideo(){window.__played++}pauseVideo(){window.__paused++}destroy(){this.frame.remove()}}};window.onYouTubeIframeAPIReady();`,
+      body: `window.__videoTime=100;window.__state=2;window.__seeks=[];window.__instances=0;window.__paused=0;window.__played=0;window.YT={Player:class{constructor(el,o){window.__instances++;this.frame=document.createElement('iframe');this.frame.src='about:blank';this.frame.style.width=o.width;this.frame.style.height=o.height;el.replaceWith(this.frame);queueMicrotask(()=>o.events.onReady({target:this}));}getIframe(){return this.frame}getCurrentTime(){return window.__videoTime}getPlayerState(){return window.__state}seekTo(n){window.__seeks.push(n)}playVideo(){window.__state=1;window.__played++}pauseVideo(){window.__state=2;window.__paused++}destroy(){this.frame.remove()}}};window.onYouTubeIframeAPIReady();`,
     }),
   );
   await page.goto("/");
@@ -302,7 +302,18 @@ test("bottom scoring panel keeps draft fields, saves shots, and remembers its po
     panel.getByRole("button", { name: "Score 5", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   const bounds = await panel.boundingBox();
-  expect(bounds!.y).toBeGreaterThan(768 * 0.4);
+  expect(bounds!.height).toBeLessThanOrEqual(768 * 0.34);
+  expect(bounds!.y).toBeGreaterThan(768 * 0.6);
+  await expect(
+    panel.getByRole("combobox", { name: "Turn / target", exact: true }),
+  ).toHaveValue("CW C");
+  await expect(
+    panel.getByRole("combobox", { name: "Shot type", exact: true }),
+  ).toHaveValue("Draw:Draw");
+  await panel.locator(".shot-selection summary").click();
+  await expect(panel.getByLabel("Shot end", { exact: true })).toBeVisible();
+  await panel.locator(".shot-selection summary").click();
+  await page.screenshot({ path: "/tmp/compact-bottom.png" });
   expect(bounds!.width).toBeGreaterThan(1366 * 0.8);
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(768);
   expect(
@@ -316,6 +327,54 @@ test("bottom scoring panel keeps draft fields, saves shots, and remembers its po
   await expect(panel.locator(".watch-score-heading .shot-code")).toHaveText(
     "1B",
   );
+  await panel
+    .getByRole("combobox", { name: "Turn / target", exact: true })
+    .selectOption("CCW S");
+  await panel
+    .getByRole("combobox", { name: "Shot type", exact: true })
+    .selectOption("Hit:Hit & Roll");
+  await panel
+    .getByRole("combobox", { name: "Execution", exact: true })
+    .selectOption("Partial");
+  await panel.getByRole("button", { name: "Score 3", exact: true }).click();
+  await panel
+    .getByRole("combobox", { name: "Deficiency / outcome", exact: true })
+    .selectOption("Overcurl");
+  await panel
+    .getByRole("button", { name: "Save & next shot", exact: true })
+    .click();
+  const recorded = await page.evaluate(
+    () => JSON.parse(localStorage.getItem("hack.store.v1")!).games[0].shots[1],
+  );
+  expect(recorded).toMatchObject({
+    id: "1B",
+    turn: "CCW S",
+    kind: "Hit",
+    type: "Hit & Roll",
+    execution: "Partial",
+    score: 3,
+    deficiency: "Overcurl",
+  });
+  for (const size of [
+    { width: 1920, height: 1080 },
+    { width: 1024, height: 768 },
+    { width: 768, height: 1024 },
+  ]) {
+    await page.setViewportSize(size);
+    const box = await panel.boundingBox();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(size.width);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(size.height);
+    const saveBox = await panel
+      .getByRole("button", { name: "Save & next shot", exact: true })
+      .boundingBox();
+    expect(saveBox!.y).toBeGreaterThan(box!.y);
+    expect(saveBox!.y + saveBox!.height).toBeLessThanOrEqual(
+      box!.y + box!.height,
+    );
+    await page.screenshot({ path: `/tmp/compact-${size.width}.png` });
+  }
+  await page.setViewportSize({ width: 1366, height: 768 });
   expect(await page.evaluate(() => (window as any).__instances)).toBe(1);
   await page
     .getByRole("button", { name: "Close watch and score", exact: true })
@@ -329,4 +388,60 @@ test("bottom scoring panel keeps draft fields, saves shots, and remembers its po
   );
   await panel.getByLabel("Scoring panel position").selectOption("right");
   await expect(panel).toHaveClass(/right/);
+});
+
+test("video shortcuts work from scoring buttons without saving or changing fields", async ({
+  page,
+}) => {
+  await setup(page);
+  const panel = page.locator(".watch-score-panel");
+  await fillShot(panel);
+  const save = panel.getByRole("button", {
+    name: "Save & next shot",
+    exact: true,
+  });
+  await save.focus();
+  await page.keyboard.press("Space");
+  expect(await page.evaluate(() => (window as any).__played)).toBe(1);
+  await page.keyboard.press("k");
+  expect(await page.evaluate(() => (window as any).__paused)).toBe(1);
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowRight");
+  expect(await page.evaluate(() => (window as any).__seeks.slice(-2))).toEqual([
+    95, 105,
+  ]);
+  await page.evaluate(() => ((window as any).__videoTime = 2));
+  await page.keyboard.press("ArrowLeft");
+  expect(await page.evaluate(() => (window as any).__seeks.at(-1))).toBe(0);
+  await expect(panel.locator(".watch-score-heading .shot-code")).toHaveText(
+    "1A",
+  );
+  await expect(
+    panel.getByRole("button", { name: "Score 5", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await panel.getByLabel("Scoring panel position").selectOption("bottom");
+  await panel.getByRole("combobox", { name: "Execution", exact: true }).focus();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("k");
+  expect(await page.evaluate(() => (window as any).__seeks.at(-1))).toBe(0);
+  expect(await page.evaluate(() => (window as any).__played)).toBe(1);
+  await panel.locator(".shot-details summary").click();
+  const note = panel.getByRole("textbox", {
+    name: "Coach’s note",
+    exact: true,
+  });
+  await note.fill("k ");
+  await note.press("ArrowLeft");
+  await note.press("k");
+  await expect(note).toHaveValue("kk ");
+  expect(await page.evaluate(() => (window as any).__played)).toBe(1);
+  await page
+    .getByRole("button", { name: "Close watch and score", exact: true })
+    .click();
+  await page
+    .getByRole("dialog", { name: "Unsaved shot", exact: true })
+    .getByRole("button", { name: "Keep scoring" })
+    .focus();
+  await page.keyboard.press("k");
+  expect(await page.evaluate(() => (window as any).__played)).toBe(1);
 });

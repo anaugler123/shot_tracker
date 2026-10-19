@@ -57,7 +57,7 @@ export function WatchScoring({
   const [error, setError] = useState("");
   useEffect(() => {
     if (body.current) body.current.scrollTop = 0;
-  }, [current.id, version]);
+  }, [current.id, version, side]);
   const editing = game.shots.some((s) => s.id === current.id);
   const handleDirty = useCallback(
     (value: boolean) => {
@@ -214,6 +214,7 @@ export function WatchScoring({
             game={game}
             shot={current}
             editing={editing}
+            compact={side === "bottom"}
             captureTime={captureTime}
             onSave={save}
             onSelect={choose}

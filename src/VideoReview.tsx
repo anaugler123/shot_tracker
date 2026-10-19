@@ -161,6 +161,43 @@ export function VideoRoom({
         if (watchDirty) setConfirmExit(true);
         else exitWatch();
       }
+      const target = event.target as HTMLElement;
+      const editable =
+        target?.closest?.("input, textarea, select") ||
+        target?.isContentEditable;
+      if (
+        !editable &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        playerState === "ready"
+      ) {
+        const video = player.current;
+        const key = event.key.toLowerCase();
+        if (video && [" ", "k", "arrowleft", "arrowright"].includes(key)) {
+          event.preventDefault();
+          try {
+            if (key === " " || key === "k") {
+              if (!event.repeat) {
+                const state = video.getPlayerState?.();
+                if (state === 1 || state === 3) video.pauseVideo?.();
+                else video.playVideo();
+              }
+            } else {
+              const time = video.getCurrentTime();
+              if (Number.isFinite(time))
+                video.seekTo(
+                  Math.max(0, time + (key === "arrowleft" ? -5 : 5)),
+                  true,
+                );
+            }
+          } catch {
+            /* Player may become unavailable while the stream reconnects. */
+          }
+          return;
+        }
+      }
       if (event.key !== "Tab") return;
       const elements = Array.from(
         surface.current?.querySelectorAll<HTMLElement>(
@@ -183,7 +220,7 @@ export function VideoRoom({
     };
     document.addEventListener("keydown", keys);
     return () => document.removeEventListener("keydown", keys);
-  }, [watching, watchDirty, g]);
+  }, [watching, watchDirty, g, playerState]);
   useEffect(() => {
     if (watching) surface.current?.focus();
   }, [watching]);
@@ -352,6 +389,7 @@ export function VideoRoom({
                     <button
                       className="button secondary"
                       aria-label="Play video"
+                      title="Play (Space / K); seek 5 seconds (← / →)"
                       disabled={playerState !== "ready"}
                       onClick={() => player.current?.playVideo()}
                     >
@@ -361,6 +399,7 @@ export function VideoRoom({
                     <button
                       className="button secondary"
                       aria-label="Pause video"
+                      title="Pause (Space / K)"
                       disabled={playerState !== "ready"}
                       onClick={() => player.current?.pauseVideo?.()}
                     >

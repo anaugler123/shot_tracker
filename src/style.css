@@ -5165,57 +5165,130 @@ blockquote {
   background: var(--surface);
   color: var(--ink);
 }
+/* The bottom dock uses compact fields, without remounting the shot draft. */
+.shot-selection:not(.compact-shot-form .shot-selection) {
+  display: contents;
+}
+.shot-selection:not(.compact-shot-form .shot-selection) > summary {
+  display: none;
+}
+.watch-score-panel.bottom .watch-score-heading {
+  padding: 6px 12px;
+}
+.watch-score-panel.bottom .watch-score-body {
+  padding: 6px 12px 0;
+}
+.watch-score-panel.bottom .watch-shot-tools {
+  margin: 0;
+}
+.watch-score-panel.bottom .watch-shot-tools .text-button {
+  min-height: 28px;
+}
+.watch-score-panel.bottom .inline-success {
+  margin: 2px 0;
+  padding: 0;
+  background: none;
+}
+.watch-score-panel.bottom .compact-shot-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(220px, 1.4fr) minmax(
+      0,
+      1fr
+    );
+  gap: 6px 12px;
+  align-items: end;
+}
+.compact-shot-form > .form-grid {
+  display: contents;
+}
+.watch-score-panel .compact-shot-form select {
+  min-height: 40px;
+  padding: 6px 8px;
+}
+.watch-score-panel .compact-shot-form fieldset {
+  margin: 0;
+}
+.watch-score-panel .compact-shot-form .score-choices {
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+.watch-score-panel .compact-shot-form .score-choices button {
+  min-height: 40px;
+  padding: 4px;
+}
+.compact-shot-form > .shot-video-time {
+  grid-row: 2;
+  grid-column: 1 / 3;
+  margin: 0;
+}
+.compact-shot-form > .shot-selection {
+  grid-row: 3;
+  grid-column: 1 / 3;
+}
+.compact-shot-form > .shot-details {
+  grid-row: 3;
+  grid-column: 3 / -1;
+  margin: 0;
+}
+.compact-shot-form > .shot-actions {
+  grid-row: 2;
+  grid-column: 4 / -1;
+}
+.watch-score-panel .compact-shot-form .shot-actions {
+  margin: 0;
+  padding: 0;
+  position: static;
+  box-shadow: none;
+  background: none;
+}
+.compact-shot-form > .field-error {
+  grid-column: 1 / -1;
+}
+.compact-shot-form summary {
+  font-size: 12px;
+  padding: 2px 0;
+  cursor: pointer;
+}
 @media (min-width: 901px), (orientation: landscape) {
   .watch-score-panel.bottom {
     top: auto;
-    bottom: 68px;
+    bottom: 16px;
     left: 16px;
     right: 16px;
     width: auto;
-    height: min(48dvh, 460px);
-    max-height: calc(100dvh - 144px);
-  }
-  .watch-score-panel.bottom .watch-score-body form {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    align-items: start;
-    gap: 0 16px;
-  }
-  .watch-score-panel.bottom form > .shot-video-time,
-  .watch-score-panel.bottom form > .shot-selectors {
-    grid-column: span 2;
-  }
-  .watch-score-panel.bottom form > .shot-details {
-    grid-column: span 3;
-  }
-  .watch-score-panel.bottom form > .field-error {
-    grid-column: 1 / -1;
-  }
-  .watch-score-panel.bottom .shot-actions {
-    margin: 0;
-    padding: 8px;
-    grid-column: 4;
-    align-self: end;
-  }
-  .watch-score-panel.bottom .shot-selectors {
-    margin-bottom: 10px;
+    height: auto;
+    max-height: min(34dvh, 300px);
   }
 }
-@media (max-width: 1199px) and (orientation: landscape) {
-  .watch-score-panel.bottom .watch-score-body form {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+@media (max-width: 1100px) {
+  .watch-score-panel.bottom .compact-shot-form {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  .watch-score-panel.bottom form > .shot-video-time,
-  .watch-score-panel.bottom form > .shot-selectors,
-  .watch-score-panel.bottom form > .shot-details {
-    grid-column: auto;
+  .watch-score-panel.bottom .compact-shot-form > .shot-video-time {
+    grid-row: 3;
+    grid-column: 1 / 3;
   }
-  .watch-score-panel.bottom .shot-actions {
-    grid-column: 2;
+  .watch-score-panel.bottom .compact-shot-form > .shot-actions {
+    grid-row: 3;
+    grid-column: 3;
+  }
+  .watch-score-panel.bottom .compact-shot-form > .shot-selection {
+    grid-row: 4;
+    grid-column: 1;
+  }
+  .watch-score-panel.bottom .compact-shot-form > .shot-details {
+    grid-row: 4;
+    grid-column: 2 / -1;
   }
 }
 @media (max-width: 900px) and (orientation: portrait) {
   .watch-score-heading .watch-position {
     display: none;
+  }
+}
+
+@media (max-width: 1100px) and (orientation: landscape) {
+  .watch-score-panel.bottom {
+    max-height: min(42dvh, 320px);
   }
 }

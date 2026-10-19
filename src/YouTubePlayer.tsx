@@ -2,6 +2,7 @@ import { useEffect, useRef, type RefObject } from "react";
 
 export interface VideoPlayer {
   getCurrentTime(): number;
+  getPlayerState?(): number;
   seekTo(seconds: number, allowSeekAhead: boolean): void;
   playVideo(): void;
   pauseVideo?(): void;
