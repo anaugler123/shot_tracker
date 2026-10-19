@@ -3,6 +3,8 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { resolve, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createPool, migrate } from "./db/database.mjs";
+import { createAPI } from "./backend/api.mjs";
 
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -18,14 +20,12 @@ const mime = {
 
 export function createApp(
   root = fileURLToPath(new URL("./dist/", import.meta.url)),
+  { pool = null, setupToken } = {},
 ) {
   root = resolve(root);
+  const api = pool ? createAPI(pool, { setupToken }) : null;
   return createServer(async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
-    if (!["GET", "HEAD"].includes(req.method)) {
-      res.writeHead(405, { Allow: "GET, HEAD" });
-      return res.end();
-    }
     let pathname;
     try {
       pathname = decodeURIComponent(
@@ -36,7 +36,33 @@ export function createApp(
       res.writeHead(400);
       return res.end("Invalid request");
     }
+    if (pathname.startsWith("/api/")) {
+      if (api) return api(req, res, pathname);
+      res.writeHead(pathname === "/api/config" ? 200 : 503, {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+      });
+      return res.end(
+        JSON.stringify(
+          pathname === "/api/config"
+            ? { database: false }
+            : { message: "Database is not configured." },
+        ),
+      );
+    }
+    if (!["GET", "HEAD"].includes(req.method)) {
+      res.writeHead(405, { Allow: "GET, HEAD" });
+      return res.end();
+    }
     if (pathname === "/healthz") {
+      if (pool) {
+        try {
+          await pool.query("SELECT 1");
+        } catch {
+          res.writeHead(503);
+          return res.end("Database unavailable");
+        }
+      }
       res.writeHead(200, {
         "Content-Type": "text/plain",
         "Cache-Control": "no-store",
@@ -91,11 +117,21 @@ if (
   const port = Number(process.env.PORT || 3000);
   if (!Number.isInteger(port) || port < 0 || port > 65535)
     throw new Error("Invalid PORT");
-  const server = createApp();
+  const pool = process.env.DATABASE_URL ? createPool() : null;
+  if (pool) {
+    await migrate(pool);
+    console.log("PostgreSQL connected; schema is current.");
+  }
+  const server = createApp(undefined, { pool });
   server.listen(port, "0.0.0.0", () =>
     console.log(`Hack listening on port ${server.address().port}`),
   );
   for (const signal of ["SIGTERM", "SIGINT"]) {
-    process.on(signal, () => server.close(() => process.exit(0)));
+    process.on(signal, () =>
+      server.close(async () => {
+        await pool?.end();
+        process.exit(0);
+      }),
+    );
   }
 }

@@ -52,8 +52,16 @@ import { type ImportResult } from "./importer";
 import sample from "./sample.json";
 import "./style.css";
 import { VideoRoom } from "./VideoReview";
+import { TeamCharts, GameDashboard } from "./PerformanceCharts";
+import { useCloudStore, SignIn, TeamAccounts } from "./cloud";
 
-type Page = "Games" | "Live scoring" | "Player insights" | "Video review";
+type Page =
+  | "Games"
+  | "Game dashboard"
+  | "Live scoring"
+  | "Player insights"
+  | "Video review"
+  | "Team accounts";
 const today = () => new Date().toLocaleDateString("en-CA");
 const dateLabel = (s: string) =>
   s
@@ -161,6 +169,15 @@ function App() {
   const [restoreGames, setRestoreGames] = useState<Game[]>([]);
   const [externalChange, setExternalChange] = useState(false);
   const [videoFocus, setVideoFocus] = useState("");
+  const cloud = useCloudStore({
+    games,
+    setGames,
+    onError: setError,
+    activeEditorId:
+      page === "Live scoring" || page === "Video review" ? selected : null,
+    blocked: !!initial.error || externalChange,
+  });
+  const readOnly = cloud.mode === "cloud" && cloud.user?.role === "player";
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
     window.addEventListener("online", update);
@@ -199,10 +216,9 @@ function App() {
       return false;
     }
     try {
-      saveGames(next);
-      setGames(next);
-      setError("");
-      return true;
+      const saved = cloud.save(next);
+      if (saved) setError("");
+      return saved;
     } catch {
       setError(
         "Your changes could not be saved. Device storage may be full or unavailable. Export a backup before continuing.",
@@ -211,7 +227,14 @@ function App() {
     }
   }
   function patch(g: Game) {
-    return persist(games.map((x) => (x.id === g.id ? g : x)));
+    const saved = persist(games.map((x) => (x.id === g.id ? g : x)));
+    if (
+      saved &&
+      g.status === "complete" &&
+      games.find((x) => x.id === g.id)?.status === "live"
+    )
+      setPage("Game dashboard");
+    return saved;
   }
   function openGame(id: string, p: Page = "Live scoring") {
     setSelected(id);
@@ -307,8 +330,10 @@ function App() {
     );
   const eventGroups = groupGames(filtered, gameSort);
   const allShots = filtered.flatMap((g) => g.shots);
+  if (cloud.mode === "cloud" && !cloud.user)
+    return <SignIn setup={cloud.setup} onSuccess={cloud.refresh} />;
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${readOnly ? "read-only" : ""}`}>
       <aside className="sidebar">
         <a
           className="brand"
@@ -338,30 +363,42 @@ function App() {
           {(
             [
               ["Games", LayoutGrid],
+              ["Game dashboard", Activity],
               ["Live scoring", Target],
               ["Player insights", TrendingUp],
               ["Video review", MonitorPlay],
+              ["Team accounts", ShieldCheck],
             ] as const
-          ).map(([name, Icon]) => (
-            <button
-              key={name}
-              className={`nav-item ${page === name ? "active" : ""}`}
-              onClick={() => {
-                setPage(name);
-                setSearch("");
-              }}
-            >
-              <Icon size={19} />
-              <span>{name}</span>
-              {name === "Games" && <em>{games.length}</em>}
-            </button>
-          ))}
+          )
+            .filter(
+              ([name]) =>
+                !(readOnly && name === "Live scoring") &&
+                !(cloud.mode !== "cloud" && name === "Team accounts"),
+            )
+            .map(([name, Icon]) => (
+              <button
+                key={name}
+                className={`nav-item ${page === name ? "active" : ""}`}
+                onClick={() => {
+                  setPage(name);
+                  setSearch("");
+                }}
+              >
+                <Icon size={19} />
+                <span>{name}</span>
+                {name === "Games" && <em>{games.length}</em>}
+              </button>
+            ))}
         </nav>
         <div className="sidebar-note">
           <span className="tiny-icon">
             <ShieldCheck size={19} />
           </span>
-          <strong>Stored on this device</strong>
+          <strong>
+            {cloud.mode === "cloud"
+              ? "Team database connected"
+              : "Stored on this device"}
+          </strong>
           <p>
             Scores are saved in this browser. Export a backup to keep a separate
             copy.
@@ -397,7 +434,7 @@ function App() {
             <span className={`save-status ${online ? "" : "offline"}`}>
               {online ? <span className="status-dot" /> : <WifiOff size={14} />}
               <span>
-                {online ? "Saved on this device" : "Offline · saving on device"}
+                {online ? cloud.status : "Offline · saving on device"}
               </span>
             </span>
             <span className="header-divider" />
@@ -407,7 +444,7 @@ function App() {
               aria-label="About this prototype"
               onClick={() =>
                 setNotice(
-                  `This prototype stores data in this browser. Export backups regularly. Shared accounts and cloud sync are not connected. ${offlineReady ? "The app is cached for offline use." : "Offline app caching is available in the production build after the first visit."}`,
+                  `Games are saved on this device. When PostgreSQL is connected, individual accounts share team data with offline sync. Export backups regularly. ${offlineReady ? "The app is cached for offline use." : "Offline app caching is available in the production build after the first visit."}`,
                 )
               }
             >
@@ -436,7 +473,57 @@ function App() {
               </button>
             </div>
           )}
-          {page === "Games" ? (
+          {cloud.mode === "cloud" && (
+            <div className="cloud-toolbar">
+              <span>
+                {cloud.user?.name} · {cloud.user?.role} · {cloud.status}
+              </span>
+              <div>
+                {cloud.localCount > 0 && !readOnly && (
+                  <button className="text-button" onClick={cloud.uploadLocal}>
+                    Upload {cloud.localCount} device games
+                  </button>
+                )}
+                <button className="text-button" onClick={cloud.sync}>
+                  Sync now
+                </button>
+                <button
+                  className="text-button"
+                  onClick={() => setPage("Team accounts")}
+                >
+                  Account
+                </button>
+              </div>
+            </div>
+          )}
+          {Object.entries(cloud.conflicts).map(([id, remote]) => (
+            <section className="sync-conflict" key={id}>
+              <h3>Sync conflict: vs. {remote.game.opponent}</h3>
+              <p>
+                This game changed on another device. Your local copy is
+                preserved. Choose which complete game version to keep.
+              </p>
+              <div>
+                <button
+                  className="button secondary"
+                  onClick={() => cloud.resolveConflict(id, false)}
+                >
+                  Use database version
+                </button>
+                {!readOnly && (
+                  <button
+                    className="button primary"
+                    onClick={() => cloud.resolveConflict(id, true)}
+                  >
+                    Keep and upload my version
+                  </button>
+                )}
+              </div>
+            </section>
+          ))}
+          {page === "Team accounts" && cloud.user ? (
+            <TeamAccounts user={cloud.user} onLogout={cloud.logout} />
+          ) : page === "Games" ? (
             <>
               <div className="page-heading">
                 <div>
@@ -450,7 +537,7 @@ function App() {
                   <button
                     className="button secondary"
                     onClick={() => file.current?.click()}
-                    disabled={busy}
+                    disabled={busy || readOnly}
                   >
                     {busy ? (
                       <LoaderCircle className="spin" size={17} />
@@ -462,6 +549,7 @@ function App() {
                   <button
                     className="button primary"
                     onClick={() => setModal("new")}
+                    disabled={readOnly}
                   >
                     <Plus size={18} /> New game
                   </button>
@@ -479,37 +567,10 @@ function App() {
                   </button>
                 </div>
               )}
-              <div className="stat-grid">
-                <Stat
-                  label="GAMES TRACKED"
-                  value={filtered.length}
-                  sub={`${new Set(filtered.map((g) => g.event)).size} event${new Set(filtered.map((g) => g.event)).size === 1 ? "" : "s"} in your workspace`}
-                  icon={<LayoutGrid size={19} />}
-                />
-                <Stat
-                  label="TEAM SHOOTING"
-                  value={
-                    percentage(allShots) === null
-                      ? "—"
-                      : `${percentage(allShots)}%`
-                  }
-                  sub="Points earned / possible points"
-                  icon={<Target size={19} />}
-                  highlight
-                />
-                <Stat
-                  label="SHOTS SCORED"
-                  value={allShots.filter((s) => s.score !== null).length}
-                  sub="Shots with a numeric score"
-                  icon={<Activity size={19} />}
-                />
-                <Stat
-                  label="READY FOR REVIEW"
-                  value={allShots.filter((s) => s.review).length}
-                  sub="Shots flagged by your coaches"
-                  icon={<Flag size={19} />}
-                />
-              </div>
+              <TeamCharts
+                games={filtered}
+                onGame={(id) => openGame(id, "Game dashboard")}
+              />
               <div className="dashboard-grid">
                 <section className="games-section">
                   <div className="section-heading">
@@ -575,7 +636,7 @@ function App() {
                             <GameCard
                               key={g.id}
                               game={g}
-                              onClick={() => openGame(g.id)}
+                              onClick={() => openGame(g.id, "Game dashboard")}
                             />
                           ))}
                         </section>
@@ -648,8 +709,9 @@ function App() {
                   <div className="privacy-note">
                     <ShieldCheck size={16} />
                     <p>
-                      Private to this browser. Export a backup to keep a
-                      separate copy of your team’s data.
+                      {cloud.mode === "cloud"
+                        ? "Signed-in team members share database records. Offline changes stay on the device until synced."
+                        : "Data is saved in this browser. Export a backup to keep a separate copy."}
                     </p>
                   </div>
                 </aside>
@@ -672,6 +734,27 @@ function App() {
                 </button>
               </section>
             </>
+          ) : page === "Game dashboard" ? (
+            current ? (
+              <GameDashboard
+                game={current}
+                games={games}
+                onSelect={setSelected}
+                onScore={() => {
+                  if (!readOnly) setPage("Live scoring");
+                }}
+                readOnly={readOnly}
+                onVideo={(shotId) => {
+                  setVideoFocus(shotId || "");
+                  setPage("Video review");
+                }}
+              >
+                <Scoreboard game={current} />
+                <ScoreAnalysis game={current} />
+              </GameDashboard>
+            ) : (
+              <EmptyStart onNew={() => setModal("new")} />
+            )
           ) : page === "Live scoring" ? (
             current ? (
               <GameRoom
@@ -682,6 +765,7 @@ function App() {
                 onChange={patch}
                 onNew={() => setModal("new")}
                 onReview={() => setPage("Video review")}
+                onDashboard={() => setPage("Game dashboard")}
               />
             ) : (
               <EmptyStart onNew={() => setModal("new")} />
@@ -698,6 +782,7 @@ function App() {
             <VideoRoom
               key={current.id + "-" + videoFocus}
               focusId={videoFocus}
+              readOnly={readOnly}
               game={current}
               games={games}
               onSelect={(id) => {
@@ -1216,7 +1301,9 @@ function GameRoom({
   onChange,
   onNew,
   onReview,
+  onDashboard,
 }: {
+  onDashboard: () => void;
   game: Game;
   games: Game[];
   onSelect: (id: string) => void;
@@ -1225,7 +1312,9 @@ function GameRoom({
   onReview: () => void;
 }) {
   const [edit, setEdit] = useState<Shot | null>(null);
-  const [end, setEnd] = useState(1);
+  const [end, setEnd] = useState(Math.min(nextShot(g).end, g.ends + 1));
+  const [advanceEnd, setAdvanceEnd] = useState(false);
+  const [finishRequested, setFinishRequested] = useState(false);
   const [scoreModal, setScoreModal] = useState(false);
   const [toast, setToast] = useState("");
   const suggested = nextShot(g);
@@ -1267,17 +1356,31 @@ function GameRoom({
           {g.sample && <span className="sample-label">EXAMPLE DATA</span>}
         </div>
         <div>
+          <button className="text-button" onClick={onDashboard}>
+            Game dashboard
+          </button>
           <button className="text-button" onClick={onReview}>
             <Video size={16} /> Video review
           </button>
           <button
             className="button secondary small-button"
-            onClick={() =>
-              onChange({
-                ...g,
-                status: g.status === "live" ? "complete" : "live",
-              })
-            }
+            onClick={() => {
+              if (g.status === "complete") {
+                onChange({ ...g, status: "live" });
+                return;
+              }
+              const latest = Math.max(1, ...g.shots.map((s) => s.end));
+              if (
+                g.shots.length &&
+                (g.scores[latest - 1]?.us === null ||
+                  g.scores[latest - 1]?.them === null)
+              ) {
+                setEnd(latest);
+                setAdvanceEnd(false);
+                setFinishRequested(true);
+                setScoreModal(true);
+              } else onChange({ ...g, status: "complete" });
+            }}
           >
             {g.status === "live" ? "Finish game" : "Reopen game"}
           </button>
@@ -1309,14 +1412,19 @@ function GameRoom({
             onCancel={() => setEdit(null)}
             onSave={(s) => {
               const exists = g.shots.some((x) => x.id === s.id);
-              if (
-                onChange({
-                  ...g,
-                  shots: [...g.shots.filter((x) => x.id !== s.id), s],
-                })
-              ) {
+              const shots = [...g.shots.filter((x) => x.id !== s.id), s];
+              if (onChange({ ...g, shots })) {
                 setEdit(null);
                 setEnd(s.end);
+                if (
+                  !exists &&
+                  (shots.filter((x) => x.end === s.end).length === 8 ||
+                    (s.position === 3 && s.stone === 2)) &&
+                  g.scores[s.end - 1]?.us === null
+                ) {
+                  setAdvanceEnd(true);
+                  setScoreModal(true);
+                }
                 setToast(
                   `${s.id} ${exists ? "updated" : "saved"} on this device.`,
                 );
@@ -1403,11 +1511,29 @@ function GameRoom({
         <EndScoreModal
           game={g}
           end={end}
-          onClose={() => setScoreModal(false)}
-          onSave={(scores) => {
-            if (onChange({ ...g, scores })) {
+          advance={advanceEnd}
+          finishRequested={finishRequested}
+          onClose={() => {
+            setFinishRequested(false);
+            setScoreModal(false);
+            setAdvanceEnd(false);
+          }}
+          onSave={(scores, finish = false, continueToNext = true) => {
+            if (
+              onChange({ ...g, scores, status: finish ? "complete" : g.status })
+            ) {
               setScoreModal(false);
-              setToast(`Scoreboard updated for end ${end}.`);
+              setFinishRequested(false);
+              if (advanceEnd && continueToNext && !finish && end < g.ends + 1) {
+                setEnd(end + 1);
+                setEdit(emptyShot(end + 1, 0, 1));
+              }
+              setAdvanceEnd(false);
+              setToast(
+                finish
+                  ? "Game finished. Open the game dashboard to review performance."
+                  : `End ${end} score saved.${advanceEnd ? " Ready for the next end." : ""}`,
+              );
             }
           }}
         />
@@ -1828,54 +1954,105 @@ function EndScoreModal({
   end,
   onClose,
   onSave,
+  advance = false,
+  finishRequested = false,
 }: {
   game: Game;
   end: number;
   onClose: () => void;
-  onSave: (scores: Game["scores"]) => void;
+  onSave: (
+    scores: Game["scores"],
+    finish?: boolean,
+    continueToNext?: boolean,
+  ) => void;
+  advance?: boolean;
+  finishRequested?: boolean;
 }) {
   const existing = g.scores[end - 1];
-  const [unplayed, setUnplayed] = useState(
-    existing?.us == null && existing?.them == null,
-  );
   const [us, setUs] = useState(existing?.us ?? 0);
   const [them, setThem] = useState(existing?.them ?? 0);
+  const [side, setSide] = useState<"us" | "them">(
+    (existing?.them ?? 0) > 0 ? "them" : "us",
+  );
   const [error, setError] = useState("");
   const hammer = hammerAt(g, end);
+  function save(finish = false, clear = false) {
+    if (
+      ![us, them].every((n) => Number.isInteger(n) && n >= 0 && n <= 8) ||
+      (us > 0 && them > 0)
+    ) {
+      setError("Only one team can score, from 0 to 8 points.");
+      return;
+    }
+    onSave(
+      g.scores.map((s, i) =>
+        i === end - 1 ? (clear ? { us: null, them: null } : { us, them }) : s,
+      ),
+      finish || finishRequested,
+      !clear,
+    );
+  }
+  const [beforeUs, beforeThem] = total({
+    ...g,
+    scores: g.scores.filter((_, i) => i !== end - 1),
+  });
+  const tied = beforeUs + us === beforeThem + them;
   return (
-    <Modal title={`End ${end} scoreboard`} onClose={onClose}>
+    <Modal title={`End ${end} score`} onClose={onClose}>
       <p className="modal-description">
-        {hammer === null
-          ? "Record earlier ends to calculate hammer."
-          : `Hammer entering this end: ${hammer ? "our team" : g.opponent}.`}{" "}
-        Blank ends keep the hammer.
+        {advance ? "End complete. Enter the score to continue. " : ""}
+        {hammer === null ? "" : `Hammer: ${hammer ? "our team" : g.opponent}.`}
       </p>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!unplayed && us > 0 && them > 0) {
-            setError("Only one team can score in an end.");
-            return;
-          }
-          onSave(
-            g.scores.map((s, i) =>
-              i === end - 1
-                ? unplayed
-                  ? { us: null, them: null }
-                  : { us, them }
-                : s,
-            ),
-          );
+      <div className="end-score-preview">
+        <span>
+          Our team<strong>{us}</strong>
+        </span>
+        <span>–</span>
+        <span>
+          {g.opponent}
+          <strong>{them}</strong>
+        </span>
+      </div>
+      <div className="end-team-picker">
+        <button
+          className={`choice ${side === "us" ? "selected" : ""}`}
+          onClick={() => setSide("us")}
+        >
+          Our team scored
+        </button>
+        <button
+          className={`choice ${side === "them" ? "selected" : ""}`}
+          onClick={() => setSide("them")}
+        >
+          {g.opponent} scored
+        </button>
+      </div>
+      <div className="end-points-picker">
+        {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+          <button
+            key={n}
+            aria-label={`${n} point${n === 1 ? "" : "s"} for ${side === "us" ? "our team" : "opponent"}`}
+            className={`choice ${(side === "us" ? us : them) === n ? "selected" : ""}`}
+            onClick={() => {
+              setUs(side === "us" ? n : 0);
+              setThem(side === "them" ? n : 0);
+            }}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+      <button
+        className={`blank-end choice ${us === 0 && them === 0 ? "selected" : ""}`}
+        onClick={() => {
+          setUs(0);
+          setThem(0);
         }}
       >
-        <label className="checkbox-label">
-          <input
-            type="checkbox"
-            checked={unplayed}
-            onChange={(e) => setUnplayed(e.target.checked)}
-          />{" "}
-          End has not been played
-        </label>
+        Blank end · 0–0
+      </button>
+      <details className="manual-end-score">
+        <summary>Type the score</summary>
         <div className="form-grid">
           <label>
             Our team
@@ -1884,10 +2061,11 @@ function EndScoreModal({
               type="number"
               min={0}
               max={8}
-              step={1}
-              disabled={unplayed}
               value={us}
-              onChange={(e) => setUs(Number(e.target.value))}
+              onChange={(e) => {
+                setUs(Number(e.target.value));
+                setThem(0);
+              }}
             />
           </label>
           <label>
@@ -1897,31 +2075,45 @@ function EndScoreModal({
               type="number"
               min={0}
               max={8}
-              step={1}
-              disabled={unplayed}
               value={them}
-              onChange={(e) => setThem(Number(e.target.value))}
+              onChange={(e) => {
+                setThem(Number(e.target.value));
+                setUs(0);
+              }}
             />
           </label>
         </div>
-        <p className="helper">
-          For a played blank end, leave both scores at 0 and uncheck “not been
-          played.”
+      </details>
+      {error && (
+        <p role="alert" className="field-error">
+          {error}
         </p>
-        {error && (
-          <p className="field-error" role="alert">
-            {error}
-          </p>
-        )}
-        <div className="modal-actions">
-          <button type="button" className="button secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="button primary">
-            Save end score <Check size={17} />
-          </button>
-        </div>
-      </form>
+      )}
+      <div className="modal-actions">
+        <button className="text-button" onClick={() => save(false, true)}>
+          {finishRequested ? "Finish without this end score" : "Clear score"}
+        </button>
+        <button className="button secondary" onClick={onClose}>
+          Cancel
+        </button>
+        <button
+          className="button primary"
+          onClick={() => save(advance && end >= g.ends && !tied)}
+        >
+          {finishRequested
+            ? "Save & finish game"
+            : advance
+              ? end >= g.ends && !tied
+                ? "Save & finish game"
+                : end < g.ends
+                  ? "Save & next end"
+                  : end === g.ends
+                    ? "Save & extra end"
+                    : "Save end score"
+              : "Save end score"}
+          <Check size={17} />
+        </button>
+      </div>
     </Modal>
   );
 }

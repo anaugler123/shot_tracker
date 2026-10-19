@@ -10,11 +10,13 @@
     "test": "tsx --test tests/*.test.ts",
     "test:e2e": "playwright test",
     "format": "prettier --write src tests *.ts *.json index.html",
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "db:migrate": "node db/migrate.mjs"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
     "lucide-react": "^1.59.0",
+    "pg": "^8.23.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

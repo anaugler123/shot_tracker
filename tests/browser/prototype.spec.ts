@@ -32,16 +32,19 @@ test("coach records, corrects and persists shots and played scoreboard ends", as
   await page
     .getByRole("button", { name: "Edit end 1 score", exact: true })
     .click();
+  await expect(
+    page.getByRole("checkbox", { name: "End has not been played" }),
+  ).toHaveCount(0);
   await page
-    .getByRole("checkbox", { name: "End has not been played" })
-    .uncheck();
-  await page.getByLabel("Our team end score", { exact: true }).fill("2");
+    .getByRole("button", { name: "2 points for our team", exact: true })
+    .click();
   await page.getByRole("button", { name: "Save end score" }).click();
   await expect(
     page.locator(".scoreboard tbody tr").first().locator("td").first(),
   ).toHaveText("2");
   await page.reload();
   await page.getByRole("button", { name: "Live scoring", exact: true }).click();
+  await page.getByLabel("Shot log end").selectOption("1");
   await expect(
     page.locator(".log-row").first().locator(".score-badge"),
   ).toContainText("4");
@@ -107,12 +110,14 @@ test("production app reloads offline after its first visit", async ({
     page.getByRole("heading", { name: "Player insights", level: 1 }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Live scoring", exact: true }).click();
+  await page.getByLabel("Shot log end").selectOption("1");
   await page.locator(".log-row").first().click();
   await page.getByRole("button", { name: "Score 2", exact: true }).click();
   await page.getByRole("button", { name: "Update shot", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("1A updated");
   await page.reload();
   await page.getByRole("button", { name: "Live scoring", exact: true }).click();
+  await page.getByLabel("Shot log end").selectOption("1");
   await expect(
     page.locator(".log-row").first().locator(".score-badge"),
   ).toContainText("2");

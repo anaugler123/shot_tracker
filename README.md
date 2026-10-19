@@ -1,47 +1,76 @@
 # Hack · Curling shot tracker
 
-A first prototype for a four-player curling team. Built with React, TypeScript and Vite, with spreadsheet parsing on the device and a production service worker for offline use.
+Four-player curling game entry, team performance charts, per-game dashboards, spreadsheet import, and YouTube shot review. React/TypeScript frontend, Node server, and optional PostgreSQL shared storage.
 
-## Run
+## Railway deployment and accounts
 
-Use Node.js 24 (the version verified in the cloud environment). In this cloud workspace, add `--cache /workspace/.npm` to `npm ci` because the home directory is read-only.
+1. Connect Railway to `anaugler123/shot_tracker`, branch `main`. The included Dockerfile and `railway.toml` build and start the app.
+2. Add a **PostgreSQL** service to the Railway project. In the **app service** variables, add a reference named `DATABASE_URL` pointing to the PostgreSQL service's `DATABASE_URL` (for a service named Postgres, Railway's reference is `${{Postgres.DATABASE_URL}}`). Prefer the private network connection when both services are in the same project. Keep this value on the server; never use a `VITE_` variable for credentials.
+3. Add a long random `SETUP_TOKEN` in the app service's variables. Store it securely. This token allows creation of the **first coach account only**; do not put it in Git or send it in chat.
+4. Deploy/redeploy the app. Startup applies pending SQL migrations automatically and `/healthz` verifies database connectivity. Generate a public HTTPS domain under **Settings → Networking**.
+5. Open the site. Enter the setup token, name, email and a password of at least 12 characters to create the first coach. You may remove `SETUP_TOKEN` from Railway after the account is created. It cannot create more coaches once a user exists.
+6. In **Team accounts**, coaches create single-use invitations for coaches or players. Share the generated link with the intended person. The link expires after 7 days. No email is sent automatically.
+
+**Coaches** can edit shared games, import data, and invite accounts. **Players** can view the whole team's games, charts, and videos; API writes are denied. Passwords are salted and hashed with scrypt. Sessions use opaque, hashed database tokens and HttpOnly/SameSite cookies (Secure on Railway HTTPS). Invitations and first-account setup are transactional. Public self-registration is disabled. This version has no password-reset email or account-removal UI; keep access to a coach account.
+
+Without `DATABASE_URL`, the app remains in local-device mode and requires no login. This is useful for local development or trying the interface. Data in that mode is not shared between browsers.
+
+## SQL and migrations
+
+- [db/migrations/001_initial.sql](db/migrations/001_initial.sql) defines users, sessions, invitations, games, shots and end scores, plus `player_performance` and `game_results` views.
+- Games retain metadata and a revision counter; individual shots and end scores are stored in relational tables with score/range constraints and foreign keys.
+- [db/database.mjs](db/database.mjs) applies migrations under a transaction/advisory lock. Applied versions are recorded in `schema_migrations`. Repeated startup is safe. Future schema changes should be new numbered migrations, rather than edits to an applied migration.
+- You can run the same migrations explicitly with `DATABASE_URL` set using `npm run db:migrate`.
+- Database connection and certificate settings come from the PostgreSQL connection string and standard `pg` environment settings. TLS verification is not disabled. Use the appropriate Railway connection URL and trusted CA configuration for your database.
+
+Enable PostgreSQL backups in Railway. Exporting JSON from the app is an additional device backup, not a substitute for database backups.
+
+## Existing browser data, offline use, and sync
+
+Existing browser games are preserved when accounts/database storage are enabled. Sign in as a coach on the **same browser and hostname** where the games were recorded, then use **Upload device games** if older games have not yet been uploaded. Browser data is scoped to the hostname: if you changed domains, export a backup from the old domain and restore it on the new one before uploading. Labeled example games are not uploaded automatically. Spreadsheet imports and newly created real games are queued for sharing.
+
+Local saves and pending edits are stored together in one browser-storage envelope. Coaches can continue recording offline after signing in and loading the production app at least once. Pending edits sync when the connection returns; the header distinguishes local saving from database sync. Team records refresh while online. A second device must be signed in and online to receive changes.
+
+Game-level revisions prevent silent overwrites. If another device changes the same game, both versions are retained and **Sync conflict** offers **Use database version** or **Keep and upload my version**. These choices select an entire game version; automatic field-by-field merging is not implemented. Changes received while an editor is open also require review rather than silently replacing its data. Another tab changing the device cache blocks stale saves until reload.
+
+Clearing browser data removes unsynced work. Export backups regularly. JSON restore adds missing games without overwriting existing corrections. Accounts are for one team per deployment; multi-team tenancy is not implemented.
+
+## Game entry and dashboards
+
+- Games are grouped by event, with event filters and newest/oldest/name sorting.
+- The team overview charts shooting by game, player shooting, and deficiency counts. Sample sizes accompany percentages. Filters apply to charts and game lists.
+- Select a game for its **Game dashboard**: result, scoreboard/hammer, shooting by end, player comparison, shot-type performance, and flagged/noted shots linked to video review.
+- Live scoring keeps turn/target, draw or hit, execution, independent 0–5 score, deficiency, notes, review flags and timestamps. Corrections are available through the shot log. Unscored picks/burnt rocks/throw-throughs stay unscored.
+- After a new eighth shot of an end, the app prompts for the end score. Choose the scoring team and points, or **Blank end**; no “not played” checkbox is required. Save advances to the next end. Numeric entry is also available. **Clear score** removes an incorrectly entered score. Null scores remain distinct from a played 0–0 blank.
+- 8- and 10-end games, plus one extra end, are supported. Finishing a game opens its dashboard. Hammer carries through blank ends. Scoreboard analysis counts recorded positions (leading, or tied with hammer), without extrapolating hypothetical unplayed ends as the workbook does.
+
+## Imports and video
+
+The supplied NextGen Classic sample contains five games and 306 numeric scores. It is labeled example data; one malformed date remains unset. Remove the bundled sample before sharing outside the team if its contents should not be public: frontend assets themselves are not access-controlled, while database APIs require authentication.
+
+Workbook import supports the supplied Details, Game 1–15 and Scoreboard Analysis template. Preview dates, player assignments, completed ends and starting hammer before saving. Duplicate imports are skipped. Per-game raw scoreboard entries take priority over cached formulas, because ExcelJS can omit zero-valued formula caches. Missing scores are never converted into zero-shot scores. Spreadsheet formulas and document instructions are not executed. Files are parsed in the browser; only confirmed game records are synced.
+
+Video review keeps one YouTube player loaded beside the shot list. Use **Capture time, save & next**, manual `m:ss`/`h:mm:ss`, player/end/flag/missing-timestamp filters, and 0–15 second pre-roll. Notes/review flags are editable by coaches. Unsaved edits prompt before switching shots. YouTube playback needs internet and depends on the stream's embedding permissions. API integration is browser-tested with a mocked player; real stream availability is external.
+
+## Local development
+
+Use Node.js 24 (`.nvmrc`).
 
 ```sh
 npm ci
 npm run dev
 ```
 
-For production behavior, including offline startup:
+In the cloud workspace, use `npm ci --cache /workspace/.npm` if the home directory is read-only. The Vite server proxies `/api` to the Node server on port 3000. To work with PostgreSQL, set `DATABASE_URL` and `SETUP_TOKEN` in the server environment and run `npm start` in another terminal. Do not commit environment files.
+
+Production startup:
 
 ```sh
 npm run build
-npm run preview
+npm start
 ```
 
-Open the development server using your host's supported preview mechanism. An iPad needs an accessible HTTPS deployment to install/cache the app; a laptop's loopback origin also supports service workers. Offline startup is available after the first successful visit and precache completion in the production build. Development mode does not install the service worker. YouTube playback requires internet access.
-
-## What you can try
-
-- Filter games by event and sort event groups by newest, oldest, or event name. Games are grouped under event headings.
-- Browse five example games from the supplied **NextGen Classic April 2026** tracker, containing 306 numeric shot scores. Example data is labeled and can be hidden. One malformed date remains unset rather than silently corrected.
-- Create an 8- or 10-end game, choose the four players and starting hammer, and record shots with automatic progression through the lineup. One extra end is supported.
-- Choose turn/target, draw or hit type, execution, independent 0–5 score, and deficiency. Open **Review flag, notes & video** for optional details and unscored picks/burnt rocks/throw-throughs.
-- Tap a shot in the end log to correct it. Zero scores are included in percentages; missing/unscored shots are excluded.
-- Tap an end number to update the scoreboard. Explicitly distinguish a played blank end (0–0) from an unplayed/unknown end. Only one team may score in an end. Hammer carries through blank ends.
-- Import `.xlsx` workbooks using the supplied tracker template. Preview dates, player names, starting hammer and completed ends before committing. Reimports skip existing games; sample versions are replaced. Imports are processed locally and do not upload the workbook.
-- Filter team-wide player insights by player, event, draw/hit and turn/target. Open a matching shot in video review.
-- Attach a YouTube video or livestream URL. The player stays loaded while selecting shots in the adjacent list. Use **Capture time, save & next** to timestamp successive shots without typing, or enter an `m:ss` / `h:mm:ss` bookmark manually. Filter by player, end, review flag, or missing timestamp. Previous/next controls follow the filtered list. Pre-roll is adjustable from 0–15 seconds. Shot notes and review flags are editable; switching shots prompts to save or discard unsaved edits. YouTube playback depends on stream availability and embedding permissions. Tests mock the YouTube API to verify capture, seeking, and player persistence without a live stream.
-- Export and restore JSON backups. Restore adds missing games and preserves existing corrections.
-
-## Prototype boundaries
-
-Data is stored in this browser's local storage. Clearing browser data removes it; export backups regularly. There are **no accounts, cloud backup, cross-device synchronization, player invitations, or multi-coach collaboration** yet. Another tab changing storage blocks stale saves until reload. Storage failures are surfaced without accepting unsaved changes.
-
-The scoreboard analysis uses **recorded score positions**: the initial state and consecutive completed ends. Advantage means leading, or tied with hammer. It shows the 70% target but does **not** reproduce the workbook's extrapolation of early finishes into hypothetical remaining ends. Missing scoreboard entries stay unknown. Inspect completed ends during import: padded trailing zeroes can be ambiguous.
-
-Spreadsheet support is scoped to this template's Details, Game 1–15 and Scoreboard Analysis layouts. Per-game raw scoreboard entries take priority over cached formulas. ExcelJS can omit zero-valued cached formula results, so those caches alone cannot establish that an end was a played blank. Unknown category labels are retained and flagged for review. Formula expressions and embedded workbook instructions are never executed.
-
-The example contains team data from the supplied workbook. Remove `src/sample.json` and change the first-run seed before sharing a deployment outside the team. A future release should move team data behind authenticated access.
+The Node server listens on `0.0.0.0` using `PORT` (default 3000). Assets and service worker are generated by Vite. Offline app startup requires a successful first production visit and cache completion; it is not enabled in Vite development mode. iPad offline use requires an accessible HTTPS deployment. `/api` responses are network-only and are not service-worker cached.
 
 ## Validation
 
@@ -52,24 +81,8 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-If Chromium is already installed, avoid a browser download:
+Set `CHROMIUM_PATH=/usr/bin/chromium` when a compatible system browser is available. Set `NEXTGEN_WORKBOOK` to the uploaded NextGen workbook path to include the real workbook browser test. Otherwise that test is explicitly skipped.
 
-```sh
-CHROMIUM_PATH=/usr/bin/chromium npm run test:e2e
-```
+For database/API and full coach/player browser checks, set **`TEST_DATABASE_URL` to a dedicated scratch PostgreSQL database**. Tests create uniquely named schemas and remove those schemas afterward; they do not truncate existing application tables. Without the variable, database-specific tests are explicitly skipped. Integration coverage includes migrations, account setup, invitations, role enforcement, session logout, input validation, concurrent revision conflicts, SQL summaries, offline browser edits, and sharing between separate coach/player browser contexts.
 
-To include the real workbook import browser test, set `NEXTGEN_WORKBOOK` to the absolute path of `NextGen Classic April 2026.xlsx`. That test is explicitly skipped when the file is unavailable; synthetic importer tests run without personal spreadsheets.
-
-Tests cover spreadsheet parsing, numeric zeroes, missing scores, 10-end scoreboards, hammer progression, shot order, percentages, video URL validation, timestamps, backup validation, browser scoring/correction/persistence, offline scoring/reload, tablet layout, video bookmark persistence, and backup restoration.
-
-ExcelJS's UUID dependency is overridden to the patched compatible v11 release; its importer is loaded separately from the main interface and precached for offline use. Original `.xlsx` uploads are not committed.
-
-## Deploy on Railway
-
-1. Create a Railway project, choose **Deploy from GitHub repo**, and select `anaugler123/shot_tracker`, branch `main`.
-2. Railway detects the included Dockerfile and `railway.toml`. The build installs the locked dependencies and creates the production app. `npm start` serves it on `0.0.0.0` using Railway's `PORT` variable; `/healthz` is the health check.
-3. In the service's **Settings → Networking**, generate a public domain. Open the resulting HTTPS address on your laptop or iPad. No application secrets or database are required for this prototype.
-
-Local production startup without Docker: `npm ci && npm run build && npm start`. Use `PORT=8080 npm start` to choose a port on macOS/Linux.
-
-The production server serves cached versioned assets and revalidates the HTML/service worker so updates can reach installed clients. Railway hosts the interface; team records still live in each browser independently. The supplied example team data is included in the frontend and is visible to anyone who can open the deployed site. This prototype has no authentication.
+Other tests cover importer edge cases, zero/missing scores, shot order, hammer, percentages, timestamps, video URL handling/player lifecycle, backups, end transitions, dashboards, event grouping and tablet layout. ExcelJS's UUID dependency is overridden to the patched compatible v11 release. Original workbooks and credentials are not committed.

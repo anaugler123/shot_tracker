@@ -26,7 +26,9 @@ export function VideoRoom({
   onSelect,
   onChange,
   focusId,
+  readOnly = false,
 }: {
+  readOnly?: boolean;
   game: Game;
   games: Game[];
   onSelect: (id: string) => void;
@@ -142,7 +144,7 @@ export function VideoRoom({
     }
   }
   function save(advance = false) {
-    if (!shot) return false;
+    if (!shot || readOnly) return false;
     const timestamp = parseTime(time);
     if (Number.isNaN(timestamp)) {
       setError("Use m:ss or h:mm:ss for the timestamp.");
@@ -162,7 +164,7 @@ export function VideoRoom({
     return true;
   }
   function capture(advance: boolean) {
-    if (!shot || !player.current || playerState !== "ready") return;
+    if (!shot || readOnly || !player.current || playerState !== "ready") return;
     const current = player.current.getCurrentTime();
     if (!Number.isFinite(current) || current < 0) {
       setError("The video time is not available. Enter a timestamp manually.");
@@ -247,6 +249,7 @@ export function VideoRoom({
                   </a>
                   <button
                     className="text-button"
+                    disabled={readOnly}
                     onClick={() => setEditingLink(!editingLink)}
                   >
                     {editingLink ? "Close" : "Change link"}
@@ -254,7 +257,7 @@ export function VideoRoom({
                 </div>
               )}
             </div>
-            {editingLink && (
+            {editingLink && !readOnly && (
               <form
                 className="video-url"
                 onSubmit={(e) => {
@@ -349,7 +352,7 @@ export function VideoRoom({
                 <button
                   className="button primary capture-next"
                   type="button"
-                  disabled={playerState !== "ready" || !online}
+                  disabled={readOnly || playerState !== "ready" || !online}
                   onClick={() => capture(true)}
                 >
                   <Clock3 size={16} /> Capture time, save{next ? " & next" : ""}
@@ -436,77 +439,81 @@ export function VideoRoom({
                     save();
                   }}
                 >
-                  <div className="timestamp-capture">
-                    <label>
-                      Video timestamp
-                      <input
-                        aria-label="Shot video timestamp"
-                        value={time}
-                        onChange={(e) => setTime(e.target.value)}
-                        placeholder="m:ss or h:mm:ss"
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className="button secondary"
-                      disabled={playerState !== "ready" || !online}
-                      onClick={() => capture(false)}
-                    >
-                      <Clock3 size={16} /> Use current video time
-                    </button>
-                  </div>
-                  <div className="review-detail-fields">
-                    <label>
-                      Mark for review
-                      <select
-                        aria-label="Mark for review"
-                        value={review}
-                        onChange={(e) => setReview(e.target.value)}
-                      >
-                        <option value="">No flag</option>
-                        {reviews.map((r) => (
-                          <option key={r}>{r}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Coach’s note
-                      <textarea
-                        aria-label="Coach’s note"
-                        rows={2}
-                        value={note}
-                        onChange={(e) => setNote(e.target.value)}
-                        placeholder="Shot notes…"
-                      />
-                    </label>
-                  </div>
-                  <div className="review-save-controls">
-                    {dirty && (
+                  <fieldset disabled={readOnly} className="video-edit-fields">
+                    <div className="timestamp-capture">
+                      <label>
+                        Video timestamp
+                        <input
+                          aria-label="Shot video timestamp"
+                          value={time}
+                          onChange={(e) => setTime(e.target.value)}
+                          placeholder="m:ss or h:mm:ss"
+                        />
+                      </label>
                       <button
                         type="button"
-                        className="text-button"
-                        onClick={() => {
-                          setTime(timeLabel(shot.timestamp));
-                          setNote(shot.note);
-                          setReview(shot.review);
-                          setError("");
-                        }}
+                        className="button secondary"
+                        disabled={
+                          readOnly || playerState !== "ready" || !online
+                        }
+                        onClick={() => capture(false)}
                       >
-                        Discard changes
+                        <Clock3 size={16} /> Use current video time
                       </button>
-                    )}
-                    <button className="button secondary">
-                      <Check size={16} /> Save timestamp
-                    </button>
-                    <button
-                      type="button"
-                      className="button primary"
-                      disabled={!next}
-                      onClick={() => save(true)}
-                    >
-                      Save & next <ArrowRight size={16} />
-                    </button>
-                  </div>
+                    </div>
+                    <div className="review-detail-fields">
+                      <label>
+                        Mark for review
+                        <select
+                          aria-label="Mark for review"
+                          value={review}
+                          onChange={(e) => setReview(e.target.value)}
+                        >
+                          <option value="">No flag</option>
+                          {reviews.map((r) => (
+                            <option key={r}>{r}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Coach’s note
+                        <textarea
+                          aria-label="Coach’s note"
+                          rows={2}
+                          value={note}
+                          onChange={(e) => setNote(e.target.value)}
+                          placeholder="Shot notes…"
+                        />
+                      </label>
+                    </div>
+                    <div className="review-save-controls">
+                      {dirty && (
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() => {
+                            setTime(timeLabel(shot.timestamp));
+                            setNote(shot.note);
+                            setReview(shot.review);
+                            setError("");
+                          }}
+                        >
+                          Discard changes
+                        </button>
+                      )}
+                      <button className="button secondary">
+                        <Check size={16} /> Save timestamp
+                      </button>
+                      <button
+                        type="button"
+                        className="button primary"
+                        disabled={!next}
+                        onClick={() => save(true)}
+                      >
+                        Save & next <ArrowRight size={16} />
+                      </button>
+                    </div>
+                  </fieldset>
                 </form>
               </>
             ) : (
