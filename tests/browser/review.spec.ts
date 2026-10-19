@@ -1,4 +1,23 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+
+async function mockPlayer(page: Page) {
+  await page.route("https://www.youtube.com/iframe_api", (route) =>
+    route.fulfill({
+      contentType: "text/javascript",
+      body: `
+ window.__videoTime=1475;window.__playerInstances=0;window.__seeks=[];
+ window.YT={Player:class {
+  constructor(element,options){window.__playerInstances++;this.frame=document.createElement('iframe');this.frame.src='about:blank';this.frame.style.width=options.width||'640px';this.frame.style.height=options.height||'390px';const wrapper=document.createElement('div');wrapper.style.width=options.width||'640px';wrapper.style.height=options.height||'390px';wrapper.append(this.frame);element.replaceWith(wrapper);queueMicrotask(()=>options.events.onReady({target:this}));}
+  getCurrentTime(){return window.__videoTime;}
+  getIframe(){return this.frame;}
+  seekTo(n){window.__seeks.push(n);}
+  playVideo(){}
+  destroy(){this.frame.remove();}
+ }};window.onYouTubeIframeAPIReady();
+ `,
+    }),
+  );
+}
 
 test("games are grouped by event with event filtering and date sorting", async ({
   page,
@@ -46,22 +65,7 @@ test("video capture advances without reloading the player and preserves shot det
 }) => {
   // The YouTube API is mocked at its script boundary. No real stream is required
   // to verify player lifecycle, capture, seek, and persistence behavior.
-  await page.route("https://www.youtube.com/iframe_api", (route) =>
-    route.fulfill({
-      contentType: "text/javascript",
-      body: `
- window.__videoTime=1475;window.__playerInstances=0;window.__seeks=[];
- window.YT={Player:class {
-  constructor(element,options){window.__playerInstances++;this.frame=document.createElement('iframe');this.frame.src='about:blank';element.replaceWith(this.frame);queueMicrotask(()=>options.events.onReady({target:this}));}
-  getCurrentTime(){return window.__videoTime;}
-  getIframe(){return this.frame;}
-  seekTo(n){window.__seeks.push(n);}
-  playVideo(){}
-  destroy(){this.frame.remove();}
- }};window.onYouTubeIframeAPIReady();
- `,
-    }),
-  );
+  await mockPlayer(page);
   await page.goto("/");
   await page.getByRole("button", { name: "Video review", exact: true }).click();
   await expect(page.locator(".review-shot-item").first()).toHaveAttribute(
@@ -129,9 +133,18 @@ test("video capture advances without reloading the player and preserves shot det
 test("video review layout stays inside laptop and iPad viewports", async ({
   page,
 }) => {
+  await mockPlayer(page);
   await page.goto("/");
   await page.getByRole("button", { name: "Video review", exact: true }).click();
+  await page
+    .getByLabel("YouTube game stream")
+    .fill("https://www.youtube.com/watch?v=abcdefghijk");
+  await page.getByRole("button", { name: "Attach video", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Use current video time", exact: true }),
+  ).toBeEnabled();
   for (const size of [
+    { width: 2560, height: 1440 },
     { width: 1366, height: 768 },
     { width: 1024, height: 768 },
     { width: 768, height: 1024 },
@@ -143,6 +156,15 @@ test("video review layout stays inside laptop and iPad viewports", async ({
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
+    const stage = await page
+      .locator(".review-workspace .video-container")
+      .boundingBox();
+    const frame = await page.locator(".youtube-host iframe").boundingBox();
+    expect(Math.abs(frame!.x - stage!.x)).toBeLessThan(1);
+    expect(Math.abs(frame!.y - stage!.y)).toBeLessThan(1);
+    expect(Math.abs(frame!.width - stage!.width)).toBeLessThan(1);
+    expect(Math.abs(frame!.height - stage!.height)).toBeLessThan(1);
+    expect(Math.abs(stage!.width / stage!.height - 16 / 9)).toBeLessThan(0.01);
     await expect(page.locator(".review-editor")).toBeVisible();
     await expect(page.locator(".review-queue")).toBeVisible();
   }

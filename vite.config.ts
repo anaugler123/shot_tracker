@@ -7,32 +7,32 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: [
-        "stone-v2.svg",
-        "favicon-v2.png",
-        "apple-touch-icon-v2.png",
+        "stone-v3.svg",
+        "favicon-v3.png",
+        "apple-touch-icon-v3.png",
       ],
       manifest: {
         name: "Hack Curling Shot Tracker",
         short_name: "Hack",
         description: "Curling shot entry, team statistics, and video review",
-        theme_color: "#173e35",
-        background_color: "#f6f7f4",
+        theme_color: "#156082",
+        background_color: "#f5f6f8",
         display: "standalone",
         icons: [
           {
-            src: "/stone-v2-192.png",
+            src: "/stone-v3-192.png",
             sizes: "192x192",
             type: "image/png",
             purpose: "any",
           },
           {
-            src: "/stone-v2-512.png",
+            src: "/stone-v3-512.png",
             sizes: "512x512",
             type: "image/png",
             purpose: "any",
           },
           {
-            src: "/stone-v2.svg",
+            src: "/stone-v3.svg",
             sizes: "any",
             type: "image/svg+xml",
             purpose: "any",

@@ -12,6 +12,8 @@ interface YouTubeAPI {
     element: HTMLElement,
     options: {
       videoId: string;
+      width: string;
+      height: string;
       host: string;
       playerVars: Record<string, string | number>;
       events: {
@@ -90,6 +92,8 @@ export function YouTubePlayer({
         host.current.replaceChildren(mount);
         instance = new api.Player(mount, {
           videoId: id,
+          width: "100%",
+          height: "100%",
           host: "https://www.youtube-nocookie.com",
           playerVars: {
             origin: window.location.origin,

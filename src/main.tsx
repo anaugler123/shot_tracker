@@ -58,6 +58,7 @@ import { TeamCharts, GameDashboard } from "./PerformanceCharts";
 import { useCloudStore, SignIn, TeamAccounts } from "./cloud";
 import { Dashboard } from "./Dashboard";
 import { TeamSettings } from "./TeamSettings";
+import { SheetShape } from "./SheetShape";
 
 type Page =
   "Games" | "Dashboard" | "Live scoring" | "Video review" | "Team accounts";
@@ -93,7 +94,7 @@ function Stone({ small = false }: { small?: boolean }) {
   return (
     <img
       className={small ? "stone small-stone" : "stone"}
-      src="/stone-v2.svg"
+      src="/stone-v3.svg"
       alt=""
     />
   );
@@ -800,6 +801,14 @@ function App() {
                 >
                   <Scoreboard game={g} teamName={teamName} />
                   <ScoreAnalysis game={g} />
+                  <SheetShape
+                    key={g.id}
+                    game={g}
+                    onReview={(shotId) => {
+                      setVideoFocus(shotId);
+                      openGame(g.id, "Video review");
+                    }}
+                  />
                 </GameDashboard>
               )}
               renderInsights={(list) => (
@@ -1465,7 +1474,7 @@ function GameRoom({
       )}
       <div className="scoring-grid">
         <section className="panel shot-panel">
-          <div className="panel-heading">
+          <div className="panel-heading" data-position={current.position}>
             <div>
               <span className="eyebrow">
                 {edit ? "EDIT RECORDED SHOT" : "UP NEXT"}
@@ -1539,6 +1548,7 @@ function GameRoom({
                 <button
                   key={i}
                   className={`log-row ${s ? "" : "unrecorded"}`}
+                  data-position={p}
                   onClick={() => {
                     setEdit(s || emptyShot(end, p, stone));
                     setToast("");
@@ -1786,6 +1796,7 @@ function ShotForm({
               <button
                 key={t}
                 type="button"
+                data-execution={t}
                 aria-pressed={s.execution === t}
                 className={`choice ${s.execution === t ? "selected" : ""}`}
                 onClick={() => update({ execution: t })}
@@ -1807,7 +1818,7 @@ function ShotForm({
                 aria-label={`Score ${n}`}
                 aria-pressed={s.score === n && !unscored}
                 disabled={unscored}
-                className={s.score === n && !unscored ? "selected" : ""}
+                className={`score-${n} ${s.score === n && !unscored ? "selected" : ""}`}
                 onClick={() => update({ score: n })}
               >
                 {n}
@@ -1823,6 +1834,7 @@ function ShotForm({
             <button
               key={t}
               type="button"
+              data-deficiency={t}
               aria-pressed={s.deficiency === t}
               className={`choice ${s.deficiency === t ? "selected" : ""}`}
               onClick={() => update({ deficiency: t })}

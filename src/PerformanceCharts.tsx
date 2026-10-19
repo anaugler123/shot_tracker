@@ -34,14 +34,14 @@ function Trend({
               x2={width - right}
               y1={y(n)}
               y2={y(n)}
-              stroke="#e0e7d9"
+              stroke="var(--line)"
             />
             <text
               x={left - 7}
               y={y(n) + 4}
               textAnchor="end"
               fontSize="10"
-              fill="#7a8b6e"
+              fill="var(--muted)"
             >
               {n}%
             </text>
@@ -50,7 +50,7 @@ function Trend({
         <polyline
           points={valid.map((p) => `${x(p.i)},${y(p.value!)}`).join(" ")}
           fill="none"
-          stroke="#567d48"
+          stroke="var(--primary)"
           strokeWidth="3"
         />
         {points.map((p, i) => (
@@ -60,7 +60,7 @@ function Trend({
               y={height - 17}
               textAnchor="middle"
               fontSize="10"
-              fill="#718269"
+              fill="var(--muted)"
             >
               {p.label.length > 13 ? p.label.slice(0, 12) + "…" : p.label}
             </text>
@@ -82,8 +82,8 @@ function Trend({
                   cx={x(i)}
                   cy={y(p.value)}
                   r="5"
-                  fill="#567d48"
-                  stroke="#fbfcf8"
+                  fill="var(--primary)"
+                  stroke="var(--surface)"
                   strokeWidth="2"
                 />
                 <title>
@@ -104,7 +104,12 @@ function Bars({
   rows,
   percentageScale = false,
 }: {
-  rows: { label: string; value: number | null; count: number }[];
+  rows: {
+    label: string;
+    value: number | null;
+    count: number;
+    color?: string;
+  }[];
   percentageScale?: boolean;
 }) {
   const max = percentageScale
@@ -119,7 +124,12 @@ function Bars({
             <small>{percentageScale ? `${r.count} shots` : ""}</small>
           </div>
           <div className="performance-track">
-            <span style={{ width: `${((r.value ?? 0) / max) * 100}%` }} />
+            <span
+              style={{
+                width: `${((r.value ?? 0) / max) * 100}%`,
+                background: r.color,
+              }}
+            />
           </div>
           <strong>
             {r.value === null ? "—" : `${r.value}${percentageScale ? "%" : ""}`}
@@ -164,7 +174,14 @@ export function TeamCharts({
     const list = games.flatMap((g) =>
       g.shots.filter((s) => g.players[s.position] === name),
     );
+    const slots = [
+      ...new Set(
+        games.map((g) => g.players.indexOf(name)).filter((p) => p >= 0),
+      ),
+    ];
     return {
+      color:
+        slots.length === 1 ? `var(--player-${slots[0]})` : "var(--primary)",
       label: name,
       value: percentage(list),
       count: list.filter((s) => s.score !== null).length,
@@ -173,6 +190,7 @@ export function TeamCharts({
   const misses = ["Light", "Heavy", "Undercurl", "Overcurl", "Management"].map(
     (label) => ({
       label,
+      color: `var(--deficiency-${label.toLowerCase()})`,
       value: scored.filter((s) => s.deficiency === label).length,
       count: 0,
     }),

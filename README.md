@@ -46,13 +46,23 @@ Clearing browser data removes unsynced work. Export backups regularly. JSON rest
 - After a new eighth shot of an end, the app prompts for the end score. Choose the scoring team and points, or **Blank end**; no “not played” checkbox is required. Save advances to the next end. Numeric entry is also available. **Clear score** removes an incorrectly entered score. Null scores remain distinct from a played 0–0 blank.
 - 8- and 10-end games, plus one extra end, are supported. Finishing a game opens its dashboard. Hammer carries through blank ends. Scoreboard analysis counts recorded positions (leading, or tied with hammer), without extrapolating hypothetical unplayed ends as the workbook does.
 
+## Workbook colours and experimental ice cutaway
+
+The app uses the source workbook's Office accent colours and the Game 1 position fills: blue Lead, peach Second, purple Third and grey Fourth. The numeric score palette follows the workbook's high-priority conditional formats: red 0, amber 1–2, pale green 3–4 and green 5. Position names and numeric scores remain visible; colour is an additional cue. Navigation uses the workbook's blue accent with neutral white/grey surfaces. Browser and installed-app icons retain the one-sided handle.
+
+Open **Dashboard → Game → Sheet shape** for an experimental cross-sheet ice cutaway. Odd ends play away; even ends play home. CW/CCW and overcurl/undercurl are converted to left/right pull from a fixed home-end viewpoint. Makes are neutral observations; unrelated deficiencies, unscored and unclassified shots are excluded. Draws are selected initially; filters can include hits or narrow to a player or target.
+
+A possible cross-slope is illustrated only with at least 8 curl misses, including 3 in each direction, agreement on the net side in both directions, and a net difference of at least 20% of usable shots. Otherwise the surface is marked undetermined. These are exploratory thresholds, not calibrated confidence levels. The visual exaggeration slider changes only the drawing. Evidence counts and links to individual shots make the result reviewable.
+
+This model detects curl bias, not measured ice geometry. Release, weight, sweeping, stones and called lines are confounders. It cannot infer local bumps or runs without more positional/path data, and the diagram has no measured elevations or angles. Estimates are recalculated from the selected game's shots; no additional SQL migration is required.
+
 ## Imports and video
 
 The supplied NextGen Classic sample contains five games and 306 numeric scores. It is labeled example data; one malformed date remains unset. Remove the bundled sample before sharing outside the team if its contents should not be public: frontend assets themselves are not access-controlled, while database APIs require authentication.
 
 Workbook import supports the supplied Details, Game 1–15 and Scoreboard Analysis template. Preview dates, player assignments, completed ends and starting hammer before saving. Duplicate imports are skipped. Per-game raw scoreboard entries take priority over cached formulas, because ExcelJS can omit zero-valued formula caches. Missing scores are never converted into zero-shot scores. Spreadsheet formulas and document instructions are not executed. Files are parsed in the browser; only confirmed game records are synced.
 
-Video review keeps one YouTube player loaded beside the shot list. Use **Capture time, save & next**, manual `m:ss`/`h:mm:ss`, player/end/flag/missing-timestamp filters, and 0–15 second pre-roll. Notes/review flags are editable by coaches. Unsaved edits prompt before switching shots. YouTube playback needs internet and depends on the stream's embedding permissions. API integration is browser-tested with a mocked player; real stream availability is external.
+Video review keeps one YouTube player loaded at the full width of its 16:9 stage, with compact capture controls beside the selected shot. On tablets, video spans the workspace above the editor and shot queue. Use **Capture time, save & next**, manual `m:ss`/`h:mm:ss`, player/end/flag/missing-timestamp filters, and 0–15 second pre-roll. Notes/review flags are editable by coaches. Unsaved edits prompt before switching shots. YouTube playback needs internet and depends on the stream's embedding permissions. API integration is browser-tested with a mocked player; real stream availability is external.
 
 ## Local development
 
@@ -87,4 +97,4 @@ Set `CHROMIUM_PATH=/usr/bin/chromium` when a compatible system browser is availa
 
 For database/API and full coach/player browser checks, set **`TEST_DATABASE_URL` to a dedicated scratch PostgreSQL database**. Tests create uniquely named schemas and remove those schemas afterward; they do not truncate existing application tables. Without the variable, database-specific tests are explicitly skipped. Integration coverage includes fresh and existing-data migrations, account setup, invitations for new and existing accounts, per-team role enforcement and data isolation (including identical game IDs), team renaming/switching, session logout, input validation, concurrent revision conflicts, SQL summaries, offline browser edits, and sharing between separate coach/player browser contexts.
 
-Other tests cover importer edge cases, zero/missing scores, shot order, hammer, percentages, timestamps, video URL handling/player lifecycle, backups, end transitions, dashboards, event grouping and tablet layout. ExcelJS's UUID dependency is overridden to the patched compatible v11 release. Original workbooks and credentials are not committed.
+Other tests cover direction-aware curl evidence, sparse/conflicting ice samples, the cutaway slider and shot links, embedded video sizing from phones through wide desktops, importer edge cases, zero/missing scores, shot order, hammer, percentages, timestamps, video URL handling/player lifecycle, backups, end transitions, dashboards, event grouping and tablet layout. ExcelJS's UUID dependency is overridden to the patched compatible v11 release. Original workbooks and credentials are not committed.

@@ -203,7 +203,7 @@ export function VideoRoom({
   }
   const ends = [...new Set(ordered.map((s) => s.end))];
   return (
-    <>
+    <div className="review-page">
       <div className="page-heading compact">
         <div>
           <h1>Video review</h1>
@@ -320,7 +320,7 @@ export function VideoRoom({
               )}
             </div>
             {shot && (
-              <div className="review-quickbar">
+              <div className="review-quickbar" data-position={shot.position}>
                 <div className="quick-shot-label">
                   <span className="shot-code">{shot.id}</span>
                   <div>
@@ -390,7 +390,10 @@ export function VideoRoom({
           <section className="panel review-editor" aria-label="Selected shot">
             {shot ? (
               <>
-                <div className="review-shot-header">
+                <div
+                  className="review-shot-header"
+                  data-position={shot.position}
+                >
                   <div>
                     <span className="eyebrow">
                       END {shot.end} · {shot.stone === 1 ? "FIRST" : "SECOND"}{" "}
@@ -639,6 +642,7 @@ export function VideoRoom({
                   className={`review-shot-item ${s.id === selectedId ? "selected" : ""}`}
                   aria-label={`Review shot ${s.id}, ${g.players[s.position]}`}
                   data-shot-id={s.id}
+                  data-position={s.position}
                   aria-pressed={s.id === selectedId}
                   onClick={() => choose(s)}
                 >
@@ -678,6 +682,6 @@ export function VideoRoom({
           </div>
         </aside>
       </div>
-    </>
+    </div>
   );
 }
