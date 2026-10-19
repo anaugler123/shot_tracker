@@ -103,11 +103,9 @@ test("production app reloads offline after its first visit", async ({
     page.getByRole("heading", { name: "Games", level: 1 }),
   ).toBeVisible();
   await expect(page.getByText("Offline · saving on device")).toBeVisible();
-  await page
-    .getByRole("button", { name: "Player insights", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Dashboard", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Player insights", level: 1 }),
+    page.getByRole("heading", { name: "Dashboard", level: 1 }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Live scoring", exact: true }).click();
   await page.getByLabel("Shot log end").selectOption("1");

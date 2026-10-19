@@ -15,6 +15,7 @@ import {
   LayoutGrid,
   LoaderCircle,
   MonitorPlay,
+  MoreHorizontal,
   Plus,
   Search,
   ShieldCheck,
@@ -43,6 +44,7 @@ import {
   sameGame,
   saveGames,
   decodeBackup,
+  teamOf,
   groupGames,
   type GameSort,
   type Game,
@@ -54,14 +56,11 @@ import "./style.css";
 import { VideoRoom } from "./VideoReview";
 import { TeamCharts, GameDashboard } from "./PerformanceCharts";
 import { useCloudStore, SignIn, TeamAccounts } from "./cloud";
+import { Dashboard } from "./Dashboard";
+import { TeamSettings } from "./TeamSettings";
 
 type Page =
-  | "Games"
-  | "Game dashboard"
-  | "Live scoring"
-  | "Player insights"
-  | "Video review"
-  | "Team accounts";
+  "Games" | "Dashboard" | "Live scoring" | "Video review" | "Team accounts";
 const today = () => new Date().toLocaleDateString("en-CA");
 const dateLabel = (s: string) =>
   s
@@ -94,7 +93,7 @@ function Stone({ small = false }: { small?: boolean }) {
   return (
     <img
       className={small ? "stone small-stone" : "stone"}
-      src="/stone.svg"
+      src="/stone-v2.svg"
       alt=""
     />
   );
@@ -152,10 +151,15 @@ function App() {
       };
     }
   });
-  const [games, setGames] = useState<Game[]>(initial.games);
+  const [allGames, setAllGames] = useState<Game[]>(initial.games);
   const [page, setPage] = useState<Page>("Games");
   const [selected, setSelected] = useState(initial.games[0]?.id || "");
-  const [modal, setModal] = useState<"new" | "import" | "restore" | null>(null);
+  const [modal, setModal] = useState<
+    "new" | "import" | "restore" | "teams" | null
+  >(null);
+  const [dashboardScope, setDashboardScope] = useState<
+    "season" | "event" | "game"
+  >("season");
   const [error, setError] = useState(initial.error);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -170,13 +174,16 @@ function App() {
   const [externalChange, setExternalChange] = useState(false);
   const [videoFocus, setVideoFocus] = useState("");
   const cloud = useCloudStore({
-    games,
-    setGames,
+    games: allGames,
+    setGames: setAllGames,
     onError: setError,
     activeEditorId:
       page === "Live scoring" || page === "Video review" ? selected : null,
     blocked: !!initial.error || externalChange,
   });
+  const games = allGames.filter((g) => teamOf(g) === cloud.activeTeamId);
+  const teamName =
+    cloud.teams.find((t) => t.id === cloud.activeTeamId)?.name || "Our team";
   const readOnly = cloud.mode === "cloud" && cloud.user?.role === "player";
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
@@ -216,7 +223,14 @@ function App() {
       return false;
     }
     try {
-      const saved = cloud.save(next);
+      const scopedNext = next.map((g) => ({
+        ...g,
+        teamId: cloud.activeTeamId,
+      }));
+      const saved = cloud.save([
+        ...allGames.filter((g) => teamOf(g) !== cloud.activeTeamId),
+        ...scopedNext,
+      ]);
       if (saved) setError("");
       return saved;
     } catch {
@@ -232,12 +246,15 @@ function App() {
       saved &&
       g.status === "complete" &&
       games.find((x) => x.id === g.id)?.status === "live"
-    )
-      setPage("Game dashboard");
+    ) {
+      setDashboardScope("game");
+      setPage("Dashboard");
+    }
     return saved;
   }
   function openGame(id: string, p: Page = "Live scoring") {
     setSelected(id);
+    if (p === "Dashboard") setDashboardScope("game");
     setPage(p);
     setSearch("");
   }
@@ -330,7 +347,10 @@ function App() {
     );
   const eventGroups = groupGames(filtered, gameSort);
   const allShots = filtered.flatMap((g) => g.shots);
-  if (cloud.mode === "cloud" && !cloud.user)
+  if (
+    cloud.mode === "cloud" &&
+    (!cloud.user || new URLSearchParams(location.search).has("invite"))
+  )
     return <SignIn setup={cloud.setup} onSuccess={cloud.refresh} />;
   return (
     <div className={`app-shell ${readOnly ? "read-only" : ""}`}>
@@ -351,21 +371,47 @@ function App() {
         </a>
         <div className="workspace-label">WORKSPACE</div>
         <div className="team-switch">
-          <span className="team-icon">N</span>
-          <div>
-            <strong>Our team</strong>
-            <small>Four-player curling</small>
-          </div>
-          <ShieldCheck size={16} />
+          <span className="team-icon">{teamName[0]?.toUpperCase()}</span>
+          <label className="team-selector-label">
+            <select
+              aria-label="Active team"
+              value={cloud.activeTeamId}
+              onChange={async (e) => {
+                try {
+                  await cloud.selectTeam(e.target.value);
+                  setSelected("");
+                  setVideoFocus("");
+                  setDashboardScope("season");
+                  setEventFilter("all");
+                  setSearch("");
+                  setPage("Dashboard");
+                } catch (err) {
+                  setError((err as Error).message);
+                }
+              }}
+            >
+              {cloud.teams.map((team) => (
+                <option key={team.id} value={team.id}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="icon-button"
+            aria-label="Manage teams"
+            onClick={() => setModal("teams")}
+          >
+            <MoreHorizontal size={18} />
+          </button>
         </div>
         <div className="nav-label">NAVIGATION</div>
         <nav>
           {(
             [
               ["Games", LayoutGrid],
-              ["Game dashboard", Activity],
+              ["Dashboard", Activity],
               ["Live scoring", Target],
-              ["Player insights", TrendingUp],
               ["Video review", MonitorPlay],
               ["Team accounts", ShieldCheck],
             ] as const
@@ -379,6 +425,8 @@ function App() {
               <button
                 key={name}
                 className={`nav-item ${page === name ? "active" : ""}`}
+                aria-label={name === "Games" ? `Games ${games.length}` : name}
+                title={name}
                 onClick={() => {
                   setPage(name);
                   setSearch("");
@@ -399,11 +447,6 @@ function App() {
               ? "Team database connected"
               : "Stored on this device"}
           </strong>
-          <p>
-            Scores are saved in this browser. Export a backup to keep a separate
-            copy.
-          </p>
-          <span className="local-tag">LOCAL PROTOTYPE</span>
         </div>
         <button className="backup-button" onClick={exportBackup}>
           <ArrowDownToLine size={17} />
@@ -419,8 +462,7 @@ function App() {
         <div className="user">
           <span className="coach-avatar">C</span>
           <div>
-            <strong>Coach workspace</strong>
-            <small>No account required</small>
+            <strong>{cloud.user?.name || "Coach workspace"}</strong>
           </div>
         </div>
       </aside>
@@ -522,16 +564,16 @@ function App() {
             </section>
           ))}
           {page === "Team accounts" && cloud.user ? (
-            <TeamAccounts user={cloud.user} onLogout={cloud.logout} />
+            <TeamAccounts
+              key={cloud.activeTeamId}
+              user={cloud.user}
+              onLogout={cloud.logout}
+            />
           ) : page === "Games" ? (
             <>
               <div className="page-heading">
                 <div>
-                  <div className="eyebrow">TEAM</div>
                   <h1>Games</h1>
-                  <p>
-                    View games by event, record shots, or import a workbook.
-                  </p>
                 </div>
                 <div className="heading-actions">
                   <button
@@ -569,7 +611,7 @@ function App() {
               )}
               <TeamCharts
                 games={filtered}
-                onGame={(id) => openGame(id, "Game dashboard")}
+                onGame={(id) => openGame(id, "Dashboard")}
               />
               <div className="dashboard-grid">
                 <section className="games-section">
@@ -578,7 +620,6 @@ function App() {
                       <h2>
                         Games <span className="count">{filtered.length}</span>
                       </h2>
-                      <p>Select a game to view or edit its shots.</p>
                     </div>
                   </div>
                   <div className="list-toolbar">
@@ -636,7 +677,7 @@ function App() {
                             <GameCard
                               key={g.id}
                               game={g}
-                              onClick={() => openGame(g.id, "Game dashboard")}
+                              onClick={() => openGame(g.id, "Dashboard")}
                             />
                           ))}
                         </section>
@@ -667,7 +708,7 @@ function App() {
                       <Target size={20} />
                     </div>
                     <h2>Live scoring</h2>
-                    <p>Record shots, edit scores, and update the scoreboard.</p>
+
                     <div className="house-art">
                       <div className="house-ring outer">
                         <div className="house-ring middle">
@@ -694,17 +735,13 @@ function App() {
                       <FileSpreadsheet size={24} />
                     </div>
                     <h3>Import spreadsheets</h3>
-                    <p>
-                      Import games from your existing tracker template. Review
-                      the data before saving.
-                    </p>
+
                     <button
                       onClick={() => file.current?.click()}
                       disabled={busy}
                     >
                       Import an .xlsx workbook <ArrowRight size={15} />
                     </button>
-                    <small>Supports your existing tracker template</small>
                   </div>
                   <div className="privacy-note">
                     <ShieldCheck size={16} />
@@ -718,7 +755,6 @@ function App() {
               </div>
               <section className="roster-strip">
                 <div>
-                  <span className="eyebrow">TEAM</span>
                   <h2>Player statistics</h2>
                 </div>
                 <div className="roster-avatars">
@@ -728,59 +764,73 @@ function App() {
                 </div>
                 <button
                   className="text-button"
-                  onClick={() => setPage("Player insights")}
+                  onClick={() => setPage("Dashboard")}
                 >
-                  View player insights <ArrowRight size={17} />
+                  View dashboard <ArrowRight size={17} />
                 </button>
               </section>
             </>
-          ) : page === "Game dashboard" ? (
-            current ? (
-              <GameDashboard
-                game={current}
-                games={games}
-                onSelect={setSelected}
-                onScore={() => {
-                  if (!readOnly) setPage("Live scoring");
-                }}
-                readOnly={readOnly}
-                onVideo={(shotId) => {
-                  setVideoFocus(shotId || "");
-                  setPage("Video review");
-                }}
-              >
-                <Scoreboard game={current} />
-                <ScoreAnalysis game={current} />
-              </GameDashboard>
-            ) : (
-              <EmptyStart onNew={() => setModal("new")} />
-            )
+          ) : page === "Dashboard" ? (
+            <Dashboard
+              key={cloud.activeTeamId}
+              games={games}
+              teamId={cloud.activeTeamId}
+              teamName={teamName}
+              scope={dashboardScope}
+              onScope={setDashboardScope}
+              selected={selected}
+              onSelect={setSelected}
+              renderGame={(g) => (
+                <GameDashboard
+                  embedded
+                  teamName={teamName}
+                  game={g}
+                  games={games}
+                  onSelect={setSelected}
+                  onScore={() => {
+                    setSelected(g.id);
+                    setPage("Live scoring");
+                  }}
+                  readOnly={readOnly}
+                  onVideo={(shotId) => {
+                    setSelected(g.id);
+                    setVideoFocus(shotId || "");
+                    setPage("Video review");
+                  }}
+                >
+                  <Scoreboard game={g} teamName={teamName} />
+                  <ScoreAnalysis game={g} />
+                </GameDashboard>
+              )}
+              renderInsights={(list) => (
+                <Insights
+                  games={list}
+                  onReview={(id, shotId) => {
+                    setVideoFocus(shotId);
+                    openGame(id, "Video review");
+                  }}
+                />
+              )}
+            />
           ) : page === "Live scoring" ? (
             current ? (
               <GameRoom
-                key={current.id}
+                key={cloud.activeTeamId + current.id}
+                teamName={teamName}
                 game={current}
                 games={games}
                 onSelect={setSelected}
                 onChange={patch}
                 onNew={() => setModal("new")}
                 onReview={() => setPage("Video review")}
-                onDashboard={() => setPage("Game dashboard")}
+                onDashboard={() => openGame(current.id, "Dashboard")}
               />
             ) : (
               <EmptyStart onNew={() => setModal("new")} />
             )
-          ) : page === "Player insights" ? (
-            <Insights
-              games={games}
-              onReview={(id, shotId) => {
-                setVideoFocus(shotId);
-                openGame(id, "Video review");
-              }}
-            />
           ) : current ? (
             <VideoRoom
-              key={current.id + "-" + videoFocus}
+              key={cloud.activeTeamId + current.id + "-" + videoFocus}
               focusId={videoFocus}
               readOnly={readOnly}
               game={current}
@@ -824,6 +874,26 @@ function App() {
           if (f) void restoreFile(f);
         }}
       />
+      {modal === "teams" && (
+        <Modal title="Teams" onClose={() => setModal(null)}>
+          <TeamSettings
+            name={teamName}
+            readOnly={readOnly}
+            canCreate={cloud.canCreateTeam}
+            onRename={cloud.renameTeam}
+            onCreate={async (name) => {
+              await cloud.createTeam(name);
+              setSelected("");
+              setVideoFocus("");
+              setDashboardScope("season");
+              setEventFilter("all");
+              setSearch("");
+              setPage("Dashboard");
+              setModal(null);
+            }}
+          />
+        </Modal>
+      )}
       {modal === "restore" && (
         <Modal title="Restore a data backup" onClose={() => setModal(null)}>
           <p className="modal-description">
@@ -927,7 +997,6 @@ function Stat({
         <span className="stat-icon">{icon}</span>
       </div>
       <strong>{value}</strong>
-      <p>{sub}</p>
     </div>
   );
 }
@@ -1302,7 +1371,9 @@ function GameRoom({
   onNew,
   onReview,
   onDashboard,
+  teamName = "Our team",
 }: {
+  teamName?: string;
   onDashboard: () => void;
   game: Game;
   games: Game[];
@@ -1326,7 +1397,6 @@ function GameRoom({
     <>
       <div className="page-heading compact">
         <div>
-          <div className="eyebrow">GAME</div>
           <h1>Live scoring</h1>
           <p>
             {g.event} <span className="inline-dot">·</span> {dateLabel(g.date)}{" "}
@@ -1342,6 +1412,7 @@ function GameRoom({
       </div>
       <Scoreboard
         game={g}
+        teamName={teamName}
         onEndClick={(e) => {
           setEnd(e);
           setScoreModal(true);
@@ -1435,7 +1506,6 @@ function GameRoom({
         <section className="panel end-panel">
           <div className="panel-heading">
             <div>
-              <span className="eyebrow">CURRENT END</span>
               <h2>Shot log</h2>
             </div>
             <select
@@ -1657,9 +1727,7 @@ function ShotForm({
         </label>
       </div>
       <fieldset>
-        <legend>
-          Turn / target <span>Clockwise or counterclockwise</span>
-        </legend>
+        <legend>Turn / target</legend>
         <div className="choice-grid turns">
           {turns.map((t) => (
             <button
@@ -1791,7 +1859,7 @@ function ShotForm({
           </label>
         </div>
         <label className="note-label">
-          Coach’s note <span>Optional, unless unscored</span>
+          Coach’s note
           <textarea
             value={s.note}
             onChange={(e) => update({ note: e.target.value })}
@@ -1832,7 +1900,9 @@ function ShotForm({
 function Scoreboard({
   game: g,
   onEndClick,
+  teamName = "Our team",
 }: {
+  teamName?: string;
   game: Game;
   onEndClick?: (n: number) => void;
 }) {
@@ -1869,7 +1939,7 @@ function Scoreboard({
             </tr>
           </thead>
           <tbody>
-            {["Our team", g.opponent].map((name, i) => (
+            {[teamName, g.opponent].map((name, i) => (
               <tr key={i}>
                 <th>
                   <span className={`team-dot ${i ? "opponent" : ""}`} />
@@ -1916,7 +1986,6 @@ function ScoreAnalysis({ game: g }: { game: Game }) {
     <section className="panel analysis-panel">
       <div className="panel-heading">
         <div>
-          <span className="eyebrow">SCOREBOARD ANALYSIS</span>
           <h2>Score and hammer by end</h2>
         </div>
         <span className="pill neutral">
@@ -1938,12 +2007,7 @@ function ScoreAnalysis({ game: g }: { game: Game }) {
         ))}
       </div>
       <p className="analysis-caption">
-        <strong>
-          {advantage} of {states.length} recorded positions in advantage.
-        </strong>{" "}
-        Advantage means leading, or tied with hammer. Includes the start and
-        consecutive completed ends. Goal: 70%. This prototype counts recorded
-        positions; it does not extrapolate unplayed ends as the workbook does.
+        {advantage} / {states.length} positions in advantage
       </p>
     </section>
   );
@@ -2157,9 +2221,7 @@ function Insights({
     <>
       <div className="page-heading">
         <div>
-          <div className="eyebrow">TEAM STATISTICS</div>
-          <h1>Player insights</h1>
-          <p>Filter player statistics by event, shot type, and turn.</p>
+          <h2>Shot analysis</h2>
         </div>
         <span className="pill neutral">TEAM-WIDE VIEW</span>
       </div>
@@ -2233,7 +2295,6 @@ function Insights({
         <section className="panel chart-panel">
           <div className="panel-heading">
             <div>
-              <span className="eyebrow">SHOT TYPE PERFORMANCE</span>
               <h2>Shooting percentage by type</h2>
             </div>
           </div>
@@ -2258,14 +2319,10 @@ function Insights({
           ) : (
             <p className="helper">No shots match these filters.</p>
           )}
-          <p className="chart-caption">
-            Points earned ÷ (scored shots × 5). Unscored shots are excluded.
-          </p>
         </section>
         <section className="panel chart-panel">
           <div className="panel-heading">
             <div>
-              <span className="eyebrow">MISS TENDENCIES</span>
               <h2>Deficiency counts</h2>
             </div>
           </div>
@@ -2282,31 +2339,11 @@ function Insights({
               <strong>{count}</strong>
             </div>
           ))}
-          <div className="insight-note">
-            <Activity size={19} />
-            <p>
-              {misses.length ? (
-                <>
-                  <strong>
-                    {[...breakdown].sort((a, b) => b.count - a.count)[0].label}
-                  </strong>{" "}
-                  is the most recorded deficiency in this selection. Review the
-                  shots below to see the context.
-                </>
-              ) : (
-                "Deficiency patterns will appear as you record shots."
-              )}
-            </p>
-          </div>
-          <p className="chart-caption">
-            Counts describe recorded outcomes, not their technical cause.
-          </p>
         </section>
       </div>
       <section className="panel">
         <div className="panel-heading">
           <div>
-            <span className="eyebrow">SHOT RECORDS</span>
             <h2>
               Matching shots <span className="count">{records.length}</span>
             </h2>

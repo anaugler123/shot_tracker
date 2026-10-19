@@ -52,7 +52,15 @@ export interface EndScore {
   us: number | null;
   them: number | null;
 }
+export interface Team {
+  id: string;
+  name: string;
+  role: "coach" | "player";
+}
+export const teamOf = (game: Game) => game.teamId || "default";
+export const gameKey = (game: Game) => `${teamOf(game)}::${game.id}`;
 export interface Game {
+  teamId?: string;
   id: string;
   event: string;
   opponent: string;
@@ -211,7 +219,7 @@ export function decodeBackup(raw: string): Store {
         (k) => typeof (g as unknown as Record<string, unknown>)[k] !== "string",
       ) ||
       !g.id ||
-      ids.has(g.id) ||
+      ids.has(gameKey(g)) ||
       ![8, 10].includes(g.ends) ||
       typeof g.firstHammer !== "boolean" ||
       !["live", "complete"].includes(g.status) ||
@@ -223,7 +231,7 @@ export function decodeBackup(raw: string): Store {
       g.scores.length !== g.ends + 1
     )
       return fail();
-    ids.add(g.id);
+    ids.add(gameKey(g));
     const shotIds = new Set<string>();
     const score = (n: unknown) =>
       n === null ||
@@ -306,4 +314,29 @@ export function groupGames(games: Game[], sort: GameSort = "newest") {
               : bd.localeCompare(ad)) || a.event.localeCompare(b.event)
       );
     });
+}
+
+export function seasonForDate(date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "";
+  const year =
+    Number(date.slice(0, 4)) - (Number(date.slice(5, 7)) < 7 ? 1 : 0);
+  return String(year);
+}
+export function filterDashboardGames(
+  games: Game[],
+  {
+    from = "",
+    to = "",
+    event = "",
+    includeUndated = false,
+  }: { from?: string; to?: string; event?: string; includeUndated?: boolean },
+) {
+  if (from && to && from > to) return [];
+  return games.filter(
+    (g) =>
+      (!event || g.event === event) &&
+      (!g.date
+        ? (!from && !to) || includeUndated
+        : (!from || g.date >= from) && (!to || g.date <= to)),
+  );
 }

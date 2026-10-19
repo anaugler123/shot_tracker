@@ -66,12 +66,13 @@ test("saving the eighth shot prompts for a score and advances the end without a 
     page.locator(".scoreboard tbody tr").first().locator("td").first(),
   ).toHaveText("2");
   await page
-    .getByRole("button", { name: "Game dashboard", exact: true })
+    .getByRole("button", { name: "Dashboard", exact: true })
     .first()
     .click();
   await expect(
-    page.getByRole("heading", { name: "Game dashboard", exact: true }),
+    page.getByRole("heading", { name: "Dashboard", exact: true }),
   ).toBeVisible();
+  await page.getByRole("tab", { name: "Game", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Shooting by end", exact: true }),
   ).toBeVisible();
@@ -90,7 +91,7 @@ test("team charts replace summary tiles and completed games open a dashboard", a
   ).toBeVisible();
   await page.locator(".game-card").first().click();
   await expect(
-    page.getByRole("heading", { name: "Game dashboard", exact: true }),
+    page.getByRole("heading", { name: "Dashboard", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Shot type performance" }),
@@ -119,7 +120,7 @@ test("finishing early requests the current end score and opens the game dashboar
     .getByRole("button", { name: "Save & finish game", exact: true })
     .click();
   await expect(
-    page.getByRole("heading", { name: "Game dashboard", exact: true }),
+    page.getByRole("heading", { name: "Dashboard", exact: true }),
   ).toBeVisible();
   await expect(page.locator(".game-overview")).toContainText(
     "Our team 2 – 0 Visitors",

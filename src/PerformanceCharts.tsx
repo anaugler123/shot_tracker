@@ -132,13 +132,15 @@ function Bars({
 export function TeamCharts({
   games,
   onGame,
+  byEnd = false,
 }: {
+  byEnd?: boolean;
   games: Game[];
   onGame?: (id: string) => void;
 }) {
   const shots = games.flatMap((g) => g.shots);
   const scored = shots.filter((s) => s.score !== null);
-  const single = games.length === 1;
+  const single = byEnd;
   const trend = single
     ? [...new Set(shots.map((s) => s.end))]
         .sort((a, b) => a - b)
@@ -196,26 +198,18 @@ export function TeamCharts({
         <section className="panel trend-panel">
           <div className="chart-heading">
             <h2>{single ? "Shooting by end" : "Team shooting by game"}</h2>
-            <p>
-              Points earned / possible points ·{" "}
-              {single ? "each played end" : "select a point to open the game"}
-            </p>
           </div>
           <Trend points={trend} onGame={onGame} />
         </section>
         <section className="panel">
           <div className="chart-heading">
             <h2>Player shooting</h2>
-            <p>Numeric scores out of 5, with shot counts</p>
           </div>
           <Bars rows={players} percentageScale />
         </section>
         <section className="panel">
           <div className="chart-heading">
             <h2>Deficiencies</h2>
-            <p>
-              Recorded deficiency counts, excluding makes and unscored shots
-            </p>
           </div>
           <Bars rows={misses} />
         </section>
@@ -231,6 +225,8 @@ export function GameDashboard({
   onVideo,
   children,
   readOnly = false,
+  embedded = false,
+  teamName = "Our team",
 }: {
   game: Game;
   games: Game[];
@@ -239,6 +235,8 @@ export function GameDashboard({
   onVideo: (shotId?: string) => void;
   children: React.ReactNode;
   readOnly?: boolean;
+  embedded?: boolean;
+  teamName?: string;
 }) {
   const scored = g.shots.filter((s) => s.score !== null);
   const [us, them] = g.scores.reduce(
@@ -258,34 +256,39 @@ export function GameDashboard({
   );
   return (
     <>
-      <div className="page-heading compact">
-        <div>
-          <h1>Game dashboard</h1>
-          <p>
-            {g.event} · {g.date || "Date not set"} ·{" "}
-            {g.venue || "Venue not set"}
-          </p>
-        </div>
-        <select
-          className="game-picker"
-          aria-label="Dashboard game"
-          value={g.id}
-          onChange={(e) => onSelect(e.target.value)}
-        >
-          {games.map((game) => (
-            <option value={game.id} key={game.id}>
-              {game.event} · vs. {game.opponent}
-            </option>
-          ))}
-        </select>
-      </div>
+      {!embedded && (
+        <>
+          {" "}
+          <div className="page-heading compact">
+            <div>
+              <h1>Game dashboard</h1>
+              <p>
+                {g.event} · {g.date || "Date not set"} ·{" "}
+                {g.venue || "Venue not set"}
+              </p>
+            </div>
+            <select
+              className="game-picker"
+              aria-label="Dashboard game"
+              value={g.id}
+              onChange={(e) => onSelect(e.target.value)}
+            >
+              {games.map((game) => (
+                <option value={game.id} key={game.id}>
+                  {game.event} · vs. {game.opponent}
+                </option>
+              ))}
+            </select>
+          </div>
+        </>
+      )}
       <section className="game-overview panel">
         <div>
           <span className={`pill ${g.status === "live" ? "live" : "neutral"}`}>
             {g.status === "live" ? "IN PROGRESS" : "FINAL"}
           </span>
           <h2>
-            Our team {us} – {them} {g.opponent}
+            {teamName} {us} – {them} {g.opponent}
           </h2>
           <p>
             {ends} ends with scores · Starting hammer:{" "}
@@ -305,7 +308,7 @@ export function GameDashboard({
         </div>
       </section>
       {children}
-      <TeamCharts games={[g]} />
+      <TeamCharts games={[g]} byEnd />
       <div className="dashboard-detail-grid">
         <section className="panel">
           <div className="chart-heading">

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { type Game } from "./model";
+import { type Game, type Team, teamOf, gameKey } from "./model";
 export interface User {
   id: string;
   name: string;
@@ -10,7 +10,10 @@ interface RecordVersion {
   game: Game;
   revision: number;
 }
+let apiTeamId = "default";
 interface SyncMeta {
+  teams?: Team[];
+  activeTeamId?: string;
   database?: boolean;
   user?: User;
   versions: Record<string, number>;
@@ -31,10 +34,14 @@ export async function api(
   path: string,
   body?: unknown,
   method = body ? "POST" : "GET",
+  teamId = apiTeamId,
 ) {
   const response = await fetch("/api" + path, {
     method,
-    headers: body ? { "Content-Type": "application/json" } : {},
+    headers: {
+      "X-Team-Id": teamId,
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
     credentials: "same-origin",
     cache: "no-store",
@@ -63,16 +70,39 @@ export function useCloudStore({
 }) {
   const [initial] = useState<SyncMeta>(() => {
     try {
-      const s = JSON.parse(localStorage.getItem("hack.store.v1") || "{}").sync;
+      const s =
+        JSON.parse(localStorage.getItem("hack.store.v1") || "{}").sync || {};
+      const migrateKeys = (record: Record<string, unknown> = {}) =>
+        Object.fromEntries(
+          Object.entries(record).map(([key, v]) => [
+            key.includes("::") ? key : "default::" + key,
+            v,
+          ]),
+        );
       return {
-        versions: s?.versions || {},
-        pending: s?.pending || {},
-        conflicts: s?.conflicts || {},
-        database: s?.database,
-        user: s?.user,
-      };
+        ...s,
+        versions: migrateKeys(s.versions),
+        pending: migrateKeys(s.pending),
+        conflicts: migrateKeys(s.conflicts),
+        teams: s.teams?.length
+          ? s.teams
+          : [
+              {
+                id: "default",
+                name: "Our team",
+                role: s.user?.role || "coach",
+              },
+            ],
+        activeTeamId: s.activeTeamId || "default",
+      } as SyncMeta;
     } catch {
-      return { versions: {}, pending: {}, conflicts: {} };
+      return {
+        versions: {},
+        pending: {},
+        conflicts: {},
+        teams: [{ id: "default", name: "Our team", role: "coach" }],
+        activeTeamId: "default",
+      };
     }
   });
   const state = useRef({ games, meta: initial });
@@ -86,25 +116,37 @@ export function useCloudStore({
   const [user, setUser] = useState<User | null>(initial.user || null);
   const userRef = useRef(user);
   userRef.current = user;
+  const [teams, setTeams] = useState<Team[]>(initial.teams!);
+  const [activeTeamId, setActiveTeamId] = useState(initial.activeTeamId!);
+  const active = useRef(activeTeamId);
+  active.current = activeTeamId;
+  apiTeamId = activeTeamId;
   const [setup, setSetup] = useState(false);
   const [status, setStatus] = useState("Checking storage…");
-  const [pending, setPending] = useState(Object.keys(initial.pending).length);
+  const [pending, setPending] = useState(0);
   const [conflicts, setConflicts] = useState(initial.conflicts);
   const running = useRef(false);
   const authSerial = useRef(0);
   const syncRef = useRef<() => Promise<void>>(async () => {});
   function commit(next: Game[], meta: SyncMeta) {
     if (blockedRef.current)
-      throw new Error(
-        "Device storage changed in another tab. Reload before syncing.",
-      );
+      throw Error("Reload this page before syncing changes from another tab.");
     localStorage.setItem(
       "hack.store.v1",
       JSON.stringify({ version: 1, games: next, sync: meta }),
     );
     state.current = { games: next, meta };
     setGames(next);
-    setPending(Object.keys(meta.pending).length);
+    if (meta.teams) setTeams(meta.teams);
+    if (meta.activeTeamId) {
+      setActiveTeamId(meta.activeTeamId);
+      active.current = meta.activeTeamId;
+      apiTeamId = meta.activeTeamId;
+    }
+    setPending(
+      Object.values(meta.pending).filter((g) => teamOf(g) === active.current)
+        .length,
+    );
     setConflicts({ ...meta.conflicts });
   }
   async function sync() {
@@ -116,16 +158,19 @@ export function useCloudStore({
     )
       return;
     running.current = true;
-    const generation = authSerial.current;
-    const accountId = userRef.current.id;
+    const generation = authSerial.current,
+      accountId = userRef.current.id,
+      teamId = active.current;
+    const stale = () =>
+      generation !== authSerial.current ||
+      accountId !== userRef.current?.id ||
+      teamId !== active.current;
     try {
       setStatus("Syncing…");
-      const incoming = (await api("/games")) as { games: RecordVersion[] };
-      if (
-        generation !== authSerial.current ||
-        accountId !== userRef.current?.id
-      )
-        return;
+      const incoming = (await api("/games", undefined, "GET", teamId)) as {
+        games: RecordVersion[];
+      };
+      if (stale()) return;
       let { games: local, meta } = state.current;
       meta = {
         ...meta,
@@ -134,63 +179,67 @@ export function useCloudStore({
         conflicts: { ...meta.conflicts },
       };
       for (const remote of incoming.games) {
-        const id = remote.game.id;
-        const existing = local.find((g) => g.id === id);
-        const queued = meta.pending[id];
+        remote.game.teamId = teamId;
+        const key = gameKey(remote.game);
+        const existing = local.find((g) => gameKey(g) === key);
+        const queued = meta.pending[key];
         if (queued) {
-          if (stable(queued) === stable(remote.game)) {
-            delete meta.pending[id];
-            delete meta.conflicts[id];
-            meta.versions[id] = remote.revision;
-            local = local.map((g) => (g.id === id ? remote.game : g));
-          } else if ((meta.versions[id] || 0) !== remote.revision)
-            meta.conflicts[id] = remote;
+          if (stable({ ...queued, teamId }) === stable(remote.game)) {
+            delete meta.pending[key];
+            delete meta.conflicts[key];
+            meta.versions[key] = remote.revision;
+            local = local.map((g) => (gameKey(g) === key ? remote.game : g));
+          } else if ((meta.versions[key] || 0) !== remote.revision)
+            meta.conflicts[key] = remote;
         } else if (
           existing &&
           !existing.sample &&
-          ((meta.versions[id] === undefined &&
-            stable(existing) !== stable(remote.game)) ||
-            (editor.current === id &&
-              meta.versions[id] !== undefined &&
-              meta.versions[id] !== remote.revision))
+          ((meta.versions[key] === undefined &&
+            stable({ ...existing, teamId }) !== stable(remote.game)) ||
+            (editor.current === remote.game.id &&
+              meta.versions[key] !== undefined &&
+              meta.versions[key] !== remote.revision))
         ) {
-          meta.pending[id] = existing;
-          meta.conflicts[id] = remote;
+          meta.pending[key] = { ...existing, teamId };
+          meta.conflicts[key] = remote;
         } else {
-          meta.versions[id] = remote.revision;
+          meta.versions[key] = remote.revision;
           local = existing
-            ? local.map((g) => (g.id === id ? remote.game : g))
+            ? local.map((g) => (gameKey(g) === key ? remote.game : g))
             : [remote.game, ...local];
         }
       }
       commit(local, meta);
       if (userRef.current?.role === "coach")
-        for (const id of Object.keys(state.current.meta.pending)) {
-          if (state.current.meta.conflicts[id]) continue;
-          const attempted = state.current.meta.pending[id];
-          const revision = state.current.meta.versions[id] || 0;
+        for (const key of Object.keys(state.current.meta.pending)) {
+          if (stale()) return;
+          const attempted = state.current.meta.pending[key];
+          if (teamOf(attempted) !== teamId || state.current.meta.conflicts[key])
+            continue;
+          const revision = state.current.meta.versions[key] || 0;
           try {
             const result = (await api(
-              "/games/" + encodeURIComponent(id),
-              { game: attempted, expectedRevision: revision },
+              "/games/" + encodeURIComponent(attempted.id),
+              { game: { ...attempted, teamId }, expectedRevision: revision },
               "PUT",
+              teamId,
             )) as RecordVersion;
-            if (
-              generation !== authSerial.current ||
-              accountId !== userRef.current?.id
-            )
-              return;
+            if (stale()) return;
             const current = state.current;
             const updated = {
               ...current.meta,
-              versions: { ...current.meta.versions, [id]: result.revision },
+              versions: { ...current.meta.versions, [key]: result.revision },
               pending: { ...current.meta.pending },
             };
-            const unchanged = stable(updated.pending[id]) === stable(attempted);
-            if (unchanged) delete updated.pending[id];
+            const unchanged =
+              stable({ ...updated.pending[key], teamId }) ===
+              stable({ ...attempted, teamId });
+            if (unchanged) delete updated.pending[key];
             commit(
               unchanged
-                ? current.games.map((g) => (g.id === id ? result.game : g))
+                ? current.games.map((g) =>
+                    gameKey(g) === key ? result.game : g,
+                  )
                 : current.games,
               updated,
             );
@@ -200,26 +249,32 @@ export function useCloudStore({
               data?: { current: RecordVersion };
             };
             if (error.status === 409 && error.data?.current) {
+              if (stale()) return;
               const current = state.current;
               commit(current.games, {
                 ...current.meta,
                 conflicts: {
                   ...current.meta.conflicts,
-                  [id]: error.data.current,
+                  [key]: error.data.current,
                 },
               });
             } else throw e;
           }
         }
-      const count = Object.keys(state.current.meta.pending).length;
+      const remaining = Object.values(state.current.meta.pending).filter(
+        (g) => teamOf(g) === teamId,
+      ).length;
       setStatus(
-        Object.keys(state.current.meta.conflicts).length
+        Object.values(state.current.meta.conflicts).some(
+          (c) => teamOf(c.game) === teamId,
+        )
           ? "Sync needs review"
-          : count
-            ? `${count} game${count === 1 ? "" : "s"} waiting to sync`
+          : remaining
+            ? `${remaining} games waiting to sync`
             : "Synced with team database",
       );
     } catch (e) {
+      if (stale()) return;
       if ((e as { status?: number }).status === 401) {
         setUser(null);
         userRef.current = null;
@@ -227,14 +282,22 @@ export function useCloudStore({
       } else setStatus("Saved on device · sync unavailable");
     } finally {
       running.current = false;
+      if (
+        (generation !== authSerial.current || teamId !== active.current) &&
+        userRef.current
+      )
+        queueMicrotask(() => void syncRef.current());
     }
   }
   syncRef.current = sync;
-  async function refresh() {
+  async function refresh(teamId?: string) {
     if (blockedRef.current) return;
     const generation = authSerial.current;
     try {
-      const response = await fetch("/api/config", { cache: "no-store" });
+      const response = await fetch("/api/config", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(15000),
+      });
       if (!response.headers.get("content-type")?.includes("application/json")) {
         setMode("local");
         setStatus("Saved on this device");
@@ -249,16 +312,21 @@ export function useCloudStore({
       }
       setMode("cloud");
       setSetup(config.setupRequired);
-      state.current.meta.database = true;
-      const me = await api("/me");
+      const me = await api("/me", undefined, "GET", teamId || active.current);
       if (generation !== authSerial.current) return;
-      if (userRef.current?.id !== me.user.id) authSerial.current++;
+      if (
+        userRef.current?.id !== me.user.id ||
+        active.current !== me.activeTeamId
+      )
+        authSerial.current++;
       setUser(me.user);
       userRef.current = me.user;
       commit(state.current.games, {
         ...state.current.meta,
-        user: me.user,
         database: true,
+        user: me.user,
+        teams: me.teams,
+        activeTeamId: me.activeTeamId,
       });
       await syncRef.current();
     } catch (e) {
@@ -289,21 +357,26 @@ export function useCloudStore({
   }, []);
   function save(next: Game[]) {
     if (mode === "cloud" && userRef.current?.role !== "coach") {
-      onError("Only coaches can edit shared team games.");
+      onError("Only this team’s coaches can edit games.");
       return false;
     }
     try {
+      const current = state.current;
       const meta = {
-        ...state.current.meta,
-        pending: { ...state.current.meta.pending },
-        versions: { ...state.current.meta.versions },
+        ...current.meta,
+        pending: { ...current.meta.pending },
+        versions: { ...current.meta.versions },
       };
-      for (const g of next)
+      for (const g of next) {
+        const key = gameKey(g);
         if (
+          teamOf(g) === active.current &&
           !g.sample &&
-          stable(g) !== stable(state.current.games.find((x) => x.id === g.id))
+          stable({ ...g, teamId: teamOf(g) }) !==
+            stable(current.games.find((x) => gameKey(x) === key))
         )
-          meta.pending[g.id] = g;
+          meta.pending[key] = g;
+      }
       commit(next, meta);
       setStatus(
         mode === "cloud"
@@ -324,36 +397,107 @@ export function useCloudStore({
       const current = state.current;
       const meta = { ...current.meta, pending: { ...current.meta.pending } };
       for (const g of current.games)
-        if (!g.sample && !meta.versions[g.id]) meta.pending[g.id] = g;
+        if (
+          teamOf(g) === active.current &&
+          !g.sample &&
+          !meta.versions[gameKey(g)]
+        )
+          meta.pending[gameKey(g)] = { ...g, teamId: active.current };
       commit(current.games, meta);
       void syncRef.current();
     } catch {
       onError("Could not prepare local games for upload.");
     }
   }
-  function resolveConflict(id: string, keepLocal: boolean) {
+  function resolveConflict(key: string, keepLocal: boolean) {
     const current = state.current;
-    const remote = current.meta.conflicts[id];
-    if (!remote) return;
+    const remote = current.meta.conflicts[key];
+    if (!remote || teamOf(remote.game) !== active.current) return;
     const meta = {
       ...current.meta,
-      versions: { ...current.meta.versions, [id]: remote.revision },
+      versions: { ...current.meta.versions, [key]: remote.revision },
       pending: { ...current.meta.pending },
       conflicts: { ...current.meta.conflicts },
     };
-    delete meta.conflicts[id];
-    if (!keepLocal) delete meta.pending[id];
+    delete meta.conflicts[key];
+    if (!keepLocal) delete meta.pending[key];
     try {
       commit(
         keepLocal
           ? current.games
-          : current.games.map((g) => (g.id === id ? remote.game : g)),
+          : current.games.map((g) => (gameKey(g) === key ? remote.game : g)),
         meta,
       );
       void syncRef.current();
     } catch {
       onError("Could not save the conflict resolution.");
     }
+  }
+  async function selectTeam(id: string) {
+    const team = teams.find((t) => t.id === id);
+    if (!team) throw Error("Team not found.");
+    authSerial.current++;
+    if (mode === "cloud" && navigator.onLine)
+      await api("/teams/" + encodeURIComponent(id) + "/select", {});
+    const nextUser = userRef.current
+      ? { ...userRef.current, role: team.role }
+      : null;
+    userRef.current = nextUser;
+    setUser(nextUser);
+    commit(state.current.games, {
+      ...state.current.meta,
+      activeTeamId: id,
+      ...(nextUser ? { user: nextUser } : {}),
+    });
+    setStatus(mode === "cloud" ? "Syncing…" : "Saved on this device");
+    await syncRef.current();
+  }
+  async function createTeam(name: string) {
+    name = name.trim();
+    if (!name || name.length > 100)
+      throw Error("Enter a team name of 1–100 characters.");
+    const team: Team =
+      mode === "cloud"
+        ? (await api("/teams", { name })).team
+        : { id: crypto.randomUUID(), name, role: "coach" };
+    commit(state.current.games, {
+      ...state.current.meta,
+      teams: [...teams, team],
+    });
+    await selectTeamFromNew(team);
+  }
+  async function selectTeamFromNew(team: Team) {
+    authSerial.current++;
+    if (mode === "cloud")
+      await api("/teams/" + encodeURIComponent(team.id) + "/select", {});
+    const nextUser = userRef.current
+      ? { ...userRef.current, role: team.role }
+      : null;
+    setUser(nextUser);
+    userRef.current = nextUser;
+    commit(state.current.games, {
+      ...state.current.meta,
+      activeTeamId: team.id,
+      ...(nextUser ? { user: nextUser } : {}),
+    });
+    await syncRef.current();
+  }
+  async function renameTeam(name: string) {
+    name = name.trim();
+    if (!name || name.length > 100)
+      throw Error("Enter a team name of 1–100 characters.");
+    if (mode === "cloud")
+      await api(
+        "/teams/" + encodeURIComponent(active.current),
+        { name },
+        "PATCH",
+      );
+    commit(state.current.games, {
+      ...state.current.meta,
+      teams: state.current.meta.teams?.map((t) =>
+        t.id === active.current ? { ...t, name } : t,
+      ),
+    });
   }
   async function logout() {
     const previous = userRef.current;
@@ -362,7 +506,6 @@ export function useCloudStore({
     try {
       await api("/logout", {});
       setUser(null);
-      userRef.current = null;
       const meta = { ...state.current.meta };
       delete meta.user;
       commit(state.current.games, meta);
@@ -378,15 +521,28 @@ export function useCloudStore({
     setup,
     status,
     pending,
-    conflicts,
+    conflicts: Object.fromEntries(
+      Object.entries(conflicts).filter(
+        ([, c]) => teamOf(c.game) === activeTeamId,
+      ),
+    ),
     save,
     refresh,
     sync: () => void syncRef.current(),
     uploadLocal,
     resolveConflict,
     logout,
+    teams,
+    activeTeamId,
+    selectTeam,
+    createTeam,
+    renameTeam,
+    canCreateTeam: mode !== "cloud" || teams.some((t) => t.role === "coach"),
     localCount: games.filter(
-      (g) => !g.sample && !state.current.meta.versions[g.id],
+      (g) =>
+        teamOf(g) === activeTeamId &&
+        !g.sample &&
+        !state.current.meta.versions[gameKey(g)],
     ).length,
   };
 }
@@ -395,7 +551,7 @@ export function SignIn({
   onSuccess,
 }: {
   setup: boolean;
-  onSuccess: () => Promise<void>;
+  onSuccess: (teamId?: string) => Promise<void>;
 }) {
   const [invite] = useState(
     () => new URLSearchParams(location.search).get("invite") || "",
@@ -415,7 +571,7 @@ export function SignIn({
         </h1>
         <p>
           {invite
-            ? "Choose your name and password. Your invitation determines your role."
+            ? "New account: choose your name and password. Already registered: use your existing account password."
             : setup
               ? "Use the setup token configured in Railway. Only the first coach uses this step."
               : "Use your individual team account."}
@@ -427,12 +583,12 @@ export function SignIn({
             setError("");
             const data = Object.fromEntries(new FormData(e.currentTarget));
             try {
-              await api("/" + action, {
+              const result = await api("/" + action, {
                 ...data,
                 ...(invite ? { token: invite } : {}),
               });
               if (invite) history.replaceState({}, "", location.pathname);
-              await onSuccess();
+              await onSuccess(invite ? result.activeTeamId : undefined);
             } catch (e) {
               setError((e as Error).message);
             } finally {
@@ -449,7 +605,12 @@ export function SignIn({
           {action !== "login" && (
             <label>
               Name
-              <input name="name" autoComplete="name" required maxLength={100} />
+              <input
+                name="name"
+                autoComplete="name"
+                required={!invite}
+                maxLength={100}
+              />
             </label>
           )}
           {!invite && (
@@ -484,7 +645,9 @@ export function SignIn({
               ? "Please wait…"
               : action === "login"
                 ? "Sign in"
-                : "Create account"}
+                : invite
+                  ? "Join team"
+                  : "Create account"}
           </button>
         </form>
       </section>
@@ -544,10 +707,8 @@ export function TeamAccounts({
               <label>
                 Role
                 <select name="role">
-                  <option value="player">Player · view team data</option>
-                  <option value="coach">
-                    Coach · edit games and invite accounts
-                  </option>
+                  <option value="player">Player</option>
+                  <option value="coach">Coach</option>
                 </select>
               </label>
             </div>
@@ -573,10 +734,7 @@ export function TeamAccounts({
           </ul>
         </>
       ) : (
-        <p className="helper">
-          Players can view the team’s games, charts, and video review. Ask a
-          coach for editing access.
-        </p>
+        <></>
       )}
       {error && (
         <p className="field-error" role="alert">

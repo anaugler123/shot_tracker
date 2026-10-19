@@ -74,7 +74,7 @@ test("coach/player accounts share database games, preserve offline edits, and re
       .getByLabel("Password", { exact: true })
       .fill("player-browser-password");
     await playerPage
-      .getByRole("button", { name: "Create account", exact: true })
+      .getByRole("button", { name: "Join team", exact: true })
       .click();
     await expect(
       playerPage.getByRole("heading", { name: "Games", exact: true, level: 1 }),
@@ -148,7 +148,7 @@ test("coach/player accounts share database games, preserve offline edits, and re
       .filter({ hasText: "Team Sync" })
       .click();
     await expect(
-      playerPage.getByRole("heading", { name: "Game dashboard", exact: true }),
+      playerPage.getByRole("heading", { name: "Dashboard", exact: true }),
     ).toBeVisible();
     await expect(playerPage.locator(".charts-summary")).toContainText(
       "1 scored shots",
@@ -158,6 +158,110 @@ test("coach/player accounts share database games, preserve offline edits, and re
         name: "Score / edit game",
         exact: true,
       }),
+    ).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Manage teams", exact: true })
+      .click();
+    await page.getByLabel("Team name", { exact: true }).fill("Team Alpha");
+    await page
+      .getByRole("button", { name: "Save team name", exact: true })
+      .click();
+    await expect(page.getByRole("dialog").getByRole("status")).toContainText(
+      "Team saved",
+    );
+    await page
+      .getByRole("button", { name: "Close dialog", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Manage teams", exact: true })
+      .click();
+    await page.getByLabel("Name", { exact: true }).fill("Team Beta");
+    await page
+      .getByRole("button", { name: "Create team", exact: true })
+      .click();
+    await expect(
+      page.getByLabel("Active team").locator("option:checked"),
+    ).toHaveText("Team Beta");
+    await expect(page.getByLabel("Active team")).toHaveValue(
+      await pool
+        .query("SELECT id FROM teams WHERE name='Team Beta'")
+        .then((r) => r.rows[0].id),
+    );
+    await page
+      .getByRole("button", { name: /^Games/ })
+      .first()
+      .click();
+    await expect(page.locator(".game-card")).toHaveCount(0);
+    await page.getByRole("button", { name: "New game", exact: true }).click();
+    const betaDialog = page.getByRole("dialog");
+    await betaDialog.getByLabel("Event", { exact: true }).fill("Beta Event");
+    await betaDialog
+      .getByLabel("Opponent", { exact: true })
+      .fill("Beta Visitors");
+    await betaDialog.getByRole("button", { name: "Start scoring" }).click();
+    await expect(page.locator(".cloud-toolbar")).toContainText(
+      "Synced with team database",
+    );
+    await page.getByLabel("Active team").selectOption({ label: "Team Alpha" });
+    await expect(page.getByText("Beta Visitors", { exact: true })).toHaveCount(
+      0,
+    );
+    await page.reload();
+    await expect(
+      page.getByLabel("Active team").locator("option:checked"),
+    ).toHaveText("Team Alpha");
+    await expect(page.getByText("Beta Visitors", { exact: true })).toHaveCount(
+      0,
+    );
+    await page.getByLabel("Active team").selectOption({ label: "Team Beta" });
+    await page
+      .getByRole("button", { name: /^Games/ })
+      .first()
+      .click();
+    await expect(page.locator(".game-card")).toHaveCount(1);
+    await expect(page.locator(".game-card")).toContainText("Beta Visitors");
+    await playerPage.reload();
+    await expect(
+      playerPage.getByLabel("Active team").locator("option"),
+    ).toHaveCount(1);
+    await expect(
+      playerPage.getByLabel("Active team").locator("option"),
+    ).toHaveText("Team Alpha");
+    // An already signed-in player can join another team as a coach.
+    await page
+      .getByRole("button", { name: "Team accounts", exact: true })
+      .click();
+    await page.getByLabel("Email", { exact: true }).fill("player@example.test");
+    await page
+      .getByRole("combobox", { name: "Role", exact: true })
+      .selectOption("coach");
+    await page
+      .getByRole("button", { name: "Create invitation", exact: true })
+      .click();
+    const betaInvite = await page
+      .getByRole("textbox", { name: /Invitation link/ })
+      .inputValue();
+    await playerPage.goto(betaInvite);
+    await expect(
+      playerPage.getByRole("heading", { name: "Join your team", exact: true }),
+    ).toBeVisible();
+    await playerPage
+      .getByLabel("Password", { exact: true })
+      .fill("player-browser-password");
+    await playerPage
+      .getByRole("button", { name: "Join team", exact: true })
+      .click();
+    await expect(
+      playerPage.getByLabel("Active team").locator("option:checked"),
+    ).toHaveText("Team Beta");
+    await expect(
+      playerPage.getByRole("button", { name: "New game", exact: true }),
+    ).toBeVisible();
+    await playerPage
+      .getByLabel("Active team")
+      .selectOption({ label: "Team Alpha" });
+    await expect(
+      playerPage.getByRole("button", { name: "New game", exact: true }),
     ).toHaveCount(0);
   } finally {
     await playerContext?.close();

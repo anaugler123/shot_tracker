@@ -50,27 +50,28 @@ export async function migrate(pool) {
     client.release();
   }
 }
-export async function readGame(client, id) {
+export async function readGame(client, id, teamId = "default") {
   const game = await client.query(
-    "SELECT id,metadata,revision FROM games WHERE id=$1",
-    [id],
+    "SELECT id,metadata,revision FROM games WHERE id=$1 AND team_id=$2",
+    [id, teamId],
   );
   if (!game.rowCount) return null;
   const row = game.rows[0];
   const [shots, ends] = await Promise.all([
     client.query(
-      "SELECT * FROM shots WHERE game_id=$1 ORDER BY end_number,position,stone",
-      [id],
+      "SELECT * FROM shots WHERE game_id=$1 AND team_id=$2 ORDER BY end_number,position,stone",
+      [id, teamId],
     ),
     client.query(
-      "SELECT * FROM end_scores WHERE game_id=$1 ORDER BY end_number",
-      [id],
+      "SELECT * FROM end_scores WHERE game_id=$1 AND team_id=$2 ORDER BY end_number",
+      [id, teamId],
     ),
   ]);
   return {
     game: {
       ...row.metadata,
       id: row.id,
+      teamId,
       shots: shots.rows.map((s) => ({
         id: s.shot_id,
         end: s.end_number,
@@ -91,33 +92,48 @@ export async function readGame(client, id) {
     revision: row.revision,
   };
 }
-export async function writeGame(pool, game, expectedRevision, userId) {
+export async function writeGame(
+  pool,
+  game,
+  expectedRevision,
+  userId,
+  teamId = "default",
+) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [game.id]);
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      teamId + ":" + game.id,
+    ]);
     const existing = await client.query(
-      "SELECT revision FROM games WHERE id=$1 FOR UPDATE",
-      [game.id],
+      "SELECT revision FROM games WHERE id=$1 AND team_id=$2 FOR UPDATE",
+      [game.id, teamId],
     );
     const revision = existing.rows[0]?.revision ?? 0;
     if (revision !== expectedRevision) {
-      const current = await readGame(client, game.id);
+      const current = await readGame(client, game.id, teamId);
       await client.query("ROLLBACK");
       return { conflict: current };
     }
     const { shots, scores, ...metadata } = game;
     delete metadata.sample;
     await client.query(
-      `INSERT INTO games(id,metadata,revision,updated_by) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET metadata=EXCLUDED.metadata,revision=EXCLUDED.revision,updated_by=EXCLUDED.updated_by,updated_at=now()`,
-      [game.id, metadata, revision + 1, userId],
+      `INSERT INTO games(id,metadata,revision,updated_by,team_id) VALUES($1,$2,$3,$4,$5) ON CONFLICT(team_id,id) DO UPDATE SET metadata=EXCLUDED.metadata,revision=EXCLUDED.revision,updated_by=EXCLUDED.updated_by,updated_at=now()`,
+      [game.id, metadata, revision + 1, userId, teamId],
     );
-    await client.query("DELETE FROM shots WHERE game_id=$1", [game.id]);
-    await client.query("DELETE FROM end_scores WHERE game_id=$1", [game.id]);
+    await client.query("DELETE FROM shots WHERE game_id=$1 AND team_id=$2", [
+      game.id,
+      teamId,
+    ]);
+    await client.query(
+      "DELETE FROM end_scores WHERE game_id=$1 AND team_id=$2",
+      [game.id, teamId],
+    );
     for (const s of shots)
       await client.query(
-        "INSERT INTO shots(game_id,shot_id,end_number,position,stone,turn_target,kind,shot_type,execution,score,deficiency,review_flag,note,video_timestamp) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+        "INSERT INTO shots(team_id,game_id,shot_id,end_number,position,stone,turn_target,kind,shot_type,execution,score,deficiency,review_flag,note,video_timestamp) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
         [
+          teamId,
           game.id,
           s.id,
           s.end,
@@ -136,11 +152,11 @@ export async function writeGame(pool, game, expectedRevision, userId) {
       );
     for (let i = 0; i < scores.length; i++)
       await client.query(
-        "INSERT INTO end_scores(game_id,end_number,us,them) VALUES($1,$2,$3,$4)",
-        [game.id, i + 1, scores[i].us, scores[i].them],
+        "INSERT INTO end_scores(team_id,game_id,end_number,us,them) VALUES($1,$2,$3,$4,$5)",
+        [teamId, game.id, i + 1, scores[i].us, scores[i].them],
       );
     await client.query("COMMIT");
-    return { game: { ...game, sample: false }, revision: revision + 1 };
+    return { game: { ...game, teamId, sample: false }, revision: revision + 1 };
   } catch (e) {
     await client.query("ROLLBACK");
     throw e;

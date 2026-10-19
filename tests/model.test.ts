@@ -155,3 +155,52 @@ test("groups games by event and sorts dates and events without putting missing d
   );
   assert.equal(games[0].id, "1");
 });
+
+test("dashboard periods use July–June seasons and handle date ranges and undated games", async () => {
+  const { seasonForDate, filterDashboardGames } = await import("../src/model");
+  assert.equal(seasonForDate("2026-04-25"), "2025");
+  assert.equal(seasonForDate("2026-07-01"), "2026");
+  assert.equal(seasonForDate(""), "");
+  const list = [
+    { ...game(), id: "april", event: "Spring", date: "2026-04-25" },
+    { ...game(), id: "fall", event: "Fall", date: "2026-09-25" },
+    { ...game(), id: "undated", date: "" },
+  ];
+  assert.deepEqual(
+    filterDashboardGames(list, { from: "2025-07-01", to: "2026-06-30" }).map(
+      (g) => g.id,
+    ),
+    ["april"],
+  );
+  assert.deepEqual(
+    filterDashboardGames(list, {
+      from: "2025-07-01",
+      to: "2026-06-30",
+      includeUndated: true,
+    }).map((g) => g.id),
+    ["april", "undated"],
+  );
+  assert.equal(
+    filterDashboardGames(list, { from: "2026-10-01", to: "2026-01-01" }).length,
+    0,
+  );
+  assert.deepEqual(
+    filterDashboardGames(list, { event: "Fall" }).map((g) => g.id),
+    ["fall"],
+  );
+});
+test("backups preserve identical game IDs belonging to separate teams", async () => {
+  const { decodeBackup } = await import("../src/model");
+  const a = game();
+  a.scores = Array.from({ length: 9 }, () => ({ us: null, them: null }));
+  const restored = decodeBackup(
+    JSON.stringify({
+      version: 1,
+      games: [
+        { ...a, teamId: "alpha" },
+        { ...a, teamId: "beta" },
+      ],
+    }),
+  );
+  assert.equal(restored.games.length, 2);
+});

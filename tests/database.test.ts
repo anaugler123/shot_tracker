@@ -1,9 +1,107 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { createPool, migrate } from "../db/database.mjs";
+import { readFile } from "node:fs/promises";
+import { createPool, migrate, readGame } from "../db/database.mjs";
 import { createApp } from "../server.mjs";
 import { emptyShot, type Game } from "../src/model";
+
+test(
+  "team migration preserves existing accounts, sessions, invitations, games and scores",
+  {
+    skip: !process.env.TEST_DATABASE_URL,
+  },
+  async () => {
+    const url = process.env.TEST_DATABASE_URL!;
+    const schema = "hack_upgrade_" + randomUUID().replaceAll("-", "");
+    const admin = createPool(url);
+    await admin.query(`CREATE SCHEMA ${schema}`);
+    const scoped = new URL(url);
+    scoped.searchParams.set("options", `-c search_path=${schema}`);
+    const pool = createPool(scoped.toString());
+    try {
+      await pool.query(
+        await readFile(
+          new URL("../db/migrations/001_initial.sql", import.meta.url),
+          "utf8",
+        ),
+      );
+      await pool.query(
+        "CREATE TABLE schema_migrations(version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('001_initial')",
+      );
+      const userId = randomUUID();
+      await pool.query(
+        "INSERT INTO users(id,email,name,password_hash,role) VALUES($1,'coach@upgrade.test','Coach','existing-hash','coach')",
+        [userId],
+      );
+      await pool.query(
+        "INSERT INTO sessions(token_hash,user_id,expires_at) VALUES('session',$1,now()+interval '1 day')",
+        [userId],
+      );
+      await pool.query(
+        "INSERT INTO invitations(token_hash,email,role,created_by,expires_at) VALUES('invite','player@upgrade.test','player',$1,now()+interval '1 day')",
+        [userId],
+      );
+      await pool.query(
+        "INSERT INTO games(id,metadata,revision,updated_by) VALUES('existing',$1,7,$2)",
+        [
+          {
+            opponent: "Visitors",
+            players: ["Lead", "Second", "Third", "Fourth"],
+          },
+          userId,
+        ],
+      );
+      await pool.query(
+        "INSERT INTO shots(game_id,shot_id,end_number,position,stone,turn_target,kind,shot_type,execution,score,deficiency,note,video_timestamp) VALUES('existing','1A',1,0,1,'CW C','Draw','Draw','Make',5,'Make','Review me',125)",
+      );
+      await pool.query(
+        "INSERT INTO end_scores(game_id,end_number,us,them) VALUES('existing',1,2,0),('existing',2,NULL,NULL)",
+      );
+      await migrate(pool);
+      await migrate(pool);
+      const loaded = await readGame(pool, "existing");
+      assert.equal(loaded.revision, 7);
+      assert.equal(loaded.game.teamId, "default");
+      assert.equal(loaded.game.opponent, "Visitors");
+      assert.equal(loaded.game.shots[0].score, 5);
+      assert.equal(loaded.game.shots[0].note, "Review me");
+      assert.equal(loaded.game.shots[0].timestamp, 125);
+      assert.deepEqual(loaded.game.scores, [
+        { us: 2, them: 0 },
+        { us: null, them: null },
+      ]);
+      assert.deepEqual(
+        (await pool.query("SELECT team_id,user_id,role FROM team_memberships"))
+          .rows,
+        [{ team_id: "default", user_id: userId, role: "coach" }],
+      );
+      assert.equal(
+        (await pool.query("SELECT active_team_id FROM sessions")).rows[0]
+          .active_team_id,
+        "default",
+      );
+      assert.equal(
+        (await pool.query("SELECT team_id FROM invitations")).rows[0].team_id,
+        "default",
+      );
+      assert.equal(
+        (await pool.query("SELECT password_hash FROM users")).rows[0]
+          .password_hash,
+        "existing-hash",
+      );
+      assert.equal(
+        (await pool.query("SELECT shooting_percentage FROM player_performance"))
+          .rows[0].shooting_percentage,
+        "100.0",
+      );
+    } finally {
+      await pool.end();
+      await admin.query(`DROP SCHEMA ${schema} CASCADE`);
+      await admin.end();
+    }
+  },
+);
 
 test(
   "PostgreSQL accounts, role permissions, shared games, revisions, and migrations",
@@ -31,10 +129,12 @@ test(
         body?: unknown,
         cookie?: string,
         method = body ? "POST" : "GET",
+        teamId?: string,
       ) {
         const response = await fetch(origin + "/api" + path, {
           method,
           headers: {
+            ...(teamId ? { "X-Team-Id": teamId } : {}),
             ...(body
               ? { "Content-Type": "application/json", Origin: origin }
               : {}),
@@ -223,6 +323,132 @@ test(
           .completed_ends,
         1,
       );
+      const renamed = await request(
+        "/teams/default",
+        { name: "Team Alpha" },
+        coach,
+        "PATCH",
+      );
+      assert.equal(renamed.response.status, 200);
+      const beta = await request("/teams", { name: "Team Beta" }, coach);
+      assert.equal(beta.response.status, 201);
+      const betaId = beta.data.team.id;
+      assert.equal(
+        (await request("/teams", { name: "Not allowed" }, player)).response
+          .status,
+        403,
+      );
+      assert.equal(
+        (await request("/games", undefined, player, "GET", betaId)).response
+          .status,
+        403,
+      );
+      assert.equal(
+        (
+          await request(
+            "/teams/" + betaId,
+            { name: "Not allowed" },
+            player,
+            "PATCH",
+          )
+        ).response.status,
+        403,
+      );
+      assert.equal(
+        (await request("/games", undefined, coach, "GET", betaId)).data.games
+          .length,
+        0,
+      );
+      const betaGame = {
+        ...game,
+        teamId: betaId,
+        opponent: "Beta opponent",
+        shots: [{ ...game.shots[0], score: 2 }],
+      };
+      assert.equal(
+        (
+          await request(
+            "/games/" + game.id,
+            { game: betaGame, expectedRevision: 0 },
+            coach,
+            "PUT",
+            betaId,
+          )
+        ).response.status,
+        200,
+      );
+      const alphaRead = await request(
+        "/games",
+        undefined,
+        coach,
+        "GET",
+        "default",
+      );
+      const betaRead = await request("/games", undefined, coach, "GET", betaId);
+      assert.equal(alphaRead.data.games[0].game.shots[0].score, 5);
+      assert.equal(betaRead.data.games[0].game.shots[0].score, 2);
+      assert.equal(
+        (
+          await request(
+            "/games/" + game.id,
+            { game: betaGame, expectedRevision: 2 },
+            coach,
+            "PUT",
+            "default",
+          )
+        ).response.status,
+        403,
+      );
+      const secondInvite = await request(
+        "/invites",
+        { email: "player@example.test", role: "coach" },
+        coach,
+        "POST",
+        betaId,
+      );
+      assert.equal(secondInvite.response.status, 201);
+      const joined = await request("/accept-invite", {
+        token: secondInvite.data.token,
+        password: "another-strong-password",
+      });
+      assert.equal(joined.response.status, 200);
+      const coachInBeta = joined.cookie!;
+      assert.equal(
+        (await request("/me", undefined, coachInBeta, "GET", betaId)).data.user
+          .role,
+        "coach",
+      );
+      assert.equal(
+        (await request("/me", undefined, coachInBeta, "GET", "default")).data
+          .user.role,
+        "player",
+      );
+      assert.equal(
+        (
+          await request(
+            "/teams/default",
+            { name: "No role escalation" },
+            coachInBeta,
+            "PATCH",
+            betaId,
+          )
+        ).response.status,
+        403,
+      );
+      assert.equal(
+        (
+          await request(
+            "/games/" + game.id,
+            { game, expectedRevision: 2 },
+            coachInBeta,
+            "PUT",
+            "default",
+          )
+        ).response.status,
+        403,
+      );
+      const teams = await request("/teams", undefined, coachInBeta);
+      assert.equal(teams.data.teams.length, 2);
       assert.equal((await request("/logout", {}, player)).response.status, 200);
       assert.equal(
         (await request("/me", undefined, player)).response.status,

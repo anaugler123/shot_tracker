@@ -6,7 +6,11 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["stone.svg"],
+      includeAssets: [
+        "stone-v2.svg",
+        "favicon-v2.png",
+        "apple-touch-icon-v2.png",
+      ],
       manifest: {
         name: "Hack Curling Shot Tracker",
         short_name: "Hack",
@@ -16,7 +20,19 @@ export default defineConfig({
         display: "standalone",
         icons: [
           {
-            src: "/stone.svg",
+            src: "/stone-v2-192.png",
+            sizes: "192x192",
+            type: "image/png",
+            purpose: "any",
+          },
+          {
+            src: "/stone-v2-512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "any",
+          },
+          {
+            src: "/stone-v2.svg",
             sizes: "any",
             type: "image/svg+xml",
             purpose: "any",
@@ -25,7 +41,7 @@ export default defineConfig({
       },
       workbox: {
         maximumFileSizeToCacheInBytes: 5000000,
-        globPatterns: ["**/*.{js,css,html,svg}"],
+        globPatterns: ["**/*.{js,css,html,svg,png}"],
         navigateFallback: "index.html",
       },
     }),
