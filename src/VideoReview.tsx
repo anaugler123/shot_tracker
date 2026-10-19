@@ -8,6 +8,11 @@ import {
   Flag,
   Play,
   Video,
+  Maximize,
+  Minimize,
+  PanelRight,
+  Pause,
+  X,
 } from "lucide-react";
 import {
   groupGames,
@@ -19,6 +24,8 @@ import {
   type Shot,
 } from "./model";
 import { YouTubePlayer, type VideoPlayer } from "./YouTubePlayer";
+import { WatchScoring } from "./WatchScoring";
+import { Modal } from "./Modal";
 
 export function VideoRoom({
   game: g,
@@ -35,6 +42,12 @@ export function VideoRoom({
   onChange: (g: Game) => boolean;
   focusId?: string;
 }) {
+  const surface = useRef<HTMLDivElement>(null);
+  const [watching, setWatching] = useState(false);
+  const [nativeFullscreen, setNativeFullscreen] = useState(false);
+  const [panelVisible, setPanelVisible] = useState(true);
+  const [watchDirty, setWatchDirty] = useState(false);
+  const [confirmExit, setConfirmExit] = useState(false);
   const ordered = [...g.shots].sort(
     (a, b) => a.end - b.end || a.position - b.position || a.stone - b.stone,
   );
@@ -101,14 +114,14 @@ export function VideoRoom({
     }
   }, [playerState]);
   useEffect(() => {
-    if (!dirty) return;
+    if (!dirty && !watchDirty) return;
     const guard = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", guard);
     return () => window.removeEventListener("beforeunload", guard);
-  }, [dirty]);
+  }, [dirty, watchDirty]);
   useEffect(() => {
     const list = shotList.current;
     const item = list?.querySelector<HTMLButtonElement>(
@@ -122,6 +135,89 @@ export function VideoRoom({
     else if (row.top < bounds.top + 32)
       list.scrollTop -= bounds.top + 32 - row.top;
   }, [selectedId, playerFilter, endFilter, onlyFlagged, onlyUnlinked]);
+  useEffect(() => {
+    const changed = () =>
+      setNativeFullscreen(document.fullscreenElement === surface.current);
+    document.addEventListener("fullscreenchange", changed);
+    return () => document.removeEventListener("fullscreenchange", changed);
+  }, []);
+  useEffect(() => {
+    if (!watching) return;
+    const before = document.body.style.overflow;
+    const element = surface.current;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = before;
+      if (document.fullscreenElement === element)
+        void document.exitFullscreen?.().catch(() => {});
+    };
+  }, [watching]);
+  useEffect(() => {
+    if (!watching) return;
+    const keys = (event: KeyboardEvent) => {
+      if ((event.target as HTMLElement)?.closest?.("dialog[open]")) return;
+      if (event.key === "Escape" && !document.fullscreenElement) {
+        event.preventDefault();
+        if (watchDirty) setConfirmExit(true);
+        else exitWatch();
+      }
+      if (event.key !== "Tab") return;
+      const elements = Array.from(
+        surface.current?.querySelectorAll<HTMLElement>(
+          "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], summary",
+        ) || [],
+      ).filter((el) => el.getClientRects().length > 0);
+      const first = elements[0],
+        last = elements[elements.length - 1];
+      if (
+        event.shiftKey &&
+        (document.activeElement === first ||
+          document.activeElement === surface.current)
+      ) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    document.addEventListener("keydown", keys);
+    return () => document.removeEventListener("keydown", keys);
+  }, [watching, watchDirty, g]);
+  useEffect(() => {
+    if (watching) surface.current?.focus();
+  }, [watching]);
+  function enterFullscreen() {
+    if (surface.current?.requestFullscreen && document.fullscreenEnabled)
+      void surface.current.requestFullscreen().catch(() => {});
+  }
+  function enterWatch() {
+    if (dirty) {
+      setError("Save or discard your review changes before scoring shots.");
+      return;
+    }
+    setWatching(true);
+    setPanelVisible(true);
+    enterFullscreen();
+  }
+  function exitWatch() {
+    if (document.fullscreenElement === surface.current)
+      void document.exitFullscreen?.().catch(() => {});
+    const latest = g.shots.find((s) => s.id === selectedId);
+    if (latest) {
+      setTime(timeLabel(latest.timestamp));
+      setNote(latest.note);
+      setReview(latest.review);
+    }
+    setWatching(false);
+    setConfirmExit(false);
+    setWatchDirty(false);
+    requestAnimationFrame(() =>
+      surface.current
+        ?.querySelector<HTMLButtonElement>(".watch-launch")
+        ?.focus(),
+    );
+  }
   function choose(s: Shot, force = false) {
     if (s.id === selectedId) return;
     if (dirty && !force) {
@@ -237,24 +333,114 @@ export function VideoRoom({
       </div>
       <div className="review-workspace">
         <section className="review-player-column">
-          <div className="panel review-video">
+          <div
+            ref={surface}
+            tabIndex={watching ? -1 : undefined}
+            role={watching ? "dialog" : undefined}
+            aria-modal={watching || undefined}
+            aria-label={watching ? "Watch and score" : undefined}
+            className={`panel review-video ${watching ? `watch-surface ${panelVisible ? "watch-panel-open" : ""}` : ""}`}
+          >
             <div className="review-video-header">
-              <strong>
-                <Video size={16} /> Game video
-              </strong>
-              {g.video && (
-                <div>
-                  <a href={g.video} target="_blank" rel="noreferrer">
-                    Open on YouTube <ExternalLink size={13} />
-                  </a>
-                  <button
-                    className="text-button"
-                    disabled={readOnly}
-                    onClick={() => setEditingLink(!editingLink)}
-                  >
-                    {editingLink ? "Close" : "Change link"}
-                  </button>
-                </div>
+              {watching ? (
+                <>
+                  <strong className="watch-title">
+                    <Video size={16} /> vs. {g.opponent}
+                  </strong>
+                  <div className="watch-controls">
+                    <button
+                      className="button secondary"
+                      aria-label="Play video"
+                      disabled={playerState !== "ready"}
+                      onClick={() => player.current?.playVideo()}
+                    >
+                      <Play size={16} />
+                      <span>Play</span>
+                    </button>
+                    <button
+                      className="button secondary"
+                      aria-label="Pause video"
+                      disabled={playerState !== "ready"}
+                      onClick={() => player.current?.pauseVideo?.()}
+                    >
+                      <Pause size={16} />
+                      <span>Pause</span>
+                    </button>
+                    <button
+                      className="button secondary"
+                      aria-label={
+                        panelVisible
+                          ? "Hide scoring panel"
+                          : "Show scoring panel"
+                      }
+                      aria-expanded={panelVisible}
+                      onClick={() => setPanelVisible(!panelVisible)}
+                    >
+                      <PanelRight size={16} />
+                      <span>Scoring</span>
+                    </button>
+                    <button
+                      className="button secondary"
+                      disabled={!document.fullscreenEnabled}
+                      aria-label={
+                        nativeFullscreen
+                          ? "Exit full screen"
+                          : "Enter full screen"
+                      }
+                      onClick={() =>
+                        nativeFullscreen
+                          ? void document.exitFullscreen?.().catch(() => {})
+                          : enterFullscreen()
+                      }
+                    >
+                      {nativeFullscreen ? (
+                        <Minimize size={16} />
+                      ) : (
+                        <Maximize size={16} />
+                      )}
+                      <span>Full screen</span>
+                    </button>
+                    <button
+                      className="button secondary"
+                      aria-label="Close watch and score"
+                      onClick={() =>
+                        watchDirty ? setConfirmExit(true) : exitWatch()
+                      }
+                    >
+                      <X size={18} />
+                      <span>Close</span>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <strong>
+                    <Video size={16} /> Game video
+                  </strong>
+                  {g.video && (
+                    <div>
+                      {!readOnly && id && (
+                        <button
+                          className="button secondary watch-launch"
+                          onClick={enterWatch}
+                          title="Full screen with shot scoring"
+                        >
+                          <Maximize size={15} /> Watch & score
+                        </button>
+                      )}
+                      <a href={g.video} target="_blank" rel="noreferrer">
+                        Open on YouTube <ExternalLink size={13} />
+                      </a>
+                      <button
+                        className="text-button"
+                        disabled={readOnly}
+                        onClick={() => setEditingLink(!editingLink)}
+                      >
+                        {editingLink ? "Close" : "Change link"}
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </div>
             {editingLink && !readOnly && (
@@ -386,6 +572,35 @@ export function VideoRoom({
                 <Play size={15} /> Play selected shot
               </button>
             </div>
+            {watching && (
+              <WatchScoring
+                game={g}
+                player={player}
+                ready={playerState === "ready" && online}
+                initialShot={shot}
+                onChange={onChange}
+                onDirtyChange={setWatchDirty}
+                hidden={!panelVisible}
+              />
+            )}
+            {watching && confirmExit && (
+              <Modal title="Unsaved shot" onClose={() => setConfirmExit(false)}>
+                <p className="modal-description">
+                  Your current shot has unsaved changes.
+                </p>
+                <div className="modal-actions">
+                  <button
+                    className="button secondary"
+                    onClick={() => setConfirmExit(false)}
+                  >
+                    Keep scoring
+                  </button>
+                  <button className="button primary" onClick={exitWatch}>
+                    Discard & close
+                  </button>
+                </div>
+              </Modal>
+            )}
           </div>
           <section className="panel review-editor" aria-label="Selected shot">
             {shot ? (

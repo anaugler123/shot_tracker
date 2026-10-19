@@ -4804,3 +4804,350 @@ blockquote {
   color: var(--muted);
   padding: 8px 0 4px;
 }
+
+/* The app enters fullscreen around the player and widgets together. */
+.review-workspace .review-video.watch-surface {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: #080e12;
+  overflow: hidden;
+  z-index: 100;
+}
+.watch-surface .video-container {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  min-height: 0;
+  max-height: none;
+  background: #080e12;
+}
+.watch-surface .review-video-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 8;
+  background: #0e2841ed;
+  color: white;
+  border: 0;
+  padding: 10px 16px;
+  flex-wrap: nowrap;
+}
+.watch-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.watch-controls {
+  flex-shrink: 0;
+}
+.watch-surface .watch-controls {
+  width: auto;
+  gap: 8px;
+}
+.watch-controls .button {
+  min-height: 40px;
+  background: #ffffffed;
+  padding: 9px 12px;
+  font-size: 12px;
+}
+.watch-surface .review-quickbar,
+.watch-surface .review-playback-controls,
+.watch-surface .video-url {
+  display: none;
+}
+.watch-score-panel {
+  position: absolute;
+  z-index: 7;
+  top: 76px;
+  right: 16px;
+  bottom: 68px;
+  width: min(390px, calc(100% - 32px));
+  background: #fffffff5;
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 12px 35px #00000040;
+  color: var(--ink);
+}
+.watch-score-panel[hidden] {
+  display: none;
+}
+.watch-score-panel.left {
+  left: 16px;
+  right: auto;
+}
+.watch-score-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  gap: 12px;
+  background: var(--position-fill);
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.watch-score-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.watch-score-heading strong {
+  font-size: 14px;
+  display: block;
+}
+.watch-score-heading div > span:not(.shot-code) {
+  font-size: 11px;
+  display: block;
+  margin-top: 4px;
+}
+.watch-score-heading .icon-button {
+  min-width: 40px;
+  min-height: 40px;
+  color: var(--ink);
+  background: var(--surface);
+}
+.watch-score-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 14px 0;
+  scrollbar-width: thin;
+}
+.watch-shot-tools {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.watch-shot-tools .text-button {
+  min-height: 36px;
+  font-size: 11px;
+}
+.shot-video-time {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.shot-video-time .button {
+  min-height: 40px;
+  padding: 10px;
+  font-size: 11px;
+}
+.shot-video-time span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.watch-score-body .shot-selectors {
+  grid-template-columns: 65px minmax(0, 1fr) 90px;
+  gap: 8px;
+  padding: 0;
+  margin-bottom: 14px;
+}
+.watch-score-body .shot-selectors label {
+  font-size: 11px;
+}
+.watch-score-body .shot-selectors select {
+  font-size: 11px;
+  padding: 8px 5px;
+}
+.watch-score-body fieldset {
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+}
+.watch-score-body legend {
+  font-size: 11px;
+  padding: 0;
+  margin-bottom: 8px;
+}
+.watch-score-body .choice-grid {
+  gap: 6px;
+}
+.watch-score-body .choice {
+  font-size: 11px;
+  min-height: 44px;
+  padding: 8px 5px;
+}
+.watch-score-body .choice-grid.turns {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.watch-score-body .choice-grid.types {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 8px;
+}
+.watch-score-body .choice-grid.execution {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.watch-score-body .score-choices {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.watch-score-body .form-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+.watch-score-body .choice-grid.deficiencies {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.watch-score-body .segmented {
+  margin: 0;
+}
+.watch-score-body .segmented button {
+  min-height: 40px;
+}
+.watch-score-body .shot-details summary {
+  font-size: 11px;
+}
+.watch-score-body .shot-actions {
+  position: sticky;
+  bottom: 0;
+  margin: 14px -14px 0;
+  padding: 12px 14px;
+  background: var(--surface);
+  box-shadow: 0 -5px 12px #0e28410d;
+  z-index: 1;
+}
+.watch-score-body .shot-actions .button {
+  min-height: 46px;
+  font-size: 12px;
+}
+.watch-score-body .inline-success {
+  font-size: 11px;
+  margin: 0 0 12px;
+  padding: 9px;
+}
+.watch-surface .modal {
+  color: var(--ink);
+}
+@media (max-width: 900px) {
+  .watch-controls .button > span {
+    display: none;
+  }
+  .watch-controls .button {
+    min-width: 40px;
+    min-height: 44px;
+    padding: 8px;
+  }
+  .watch-surface .review-video-header {
+    gap: 8px;
+    padding: 8px 12px;
+  }
+  .watch-score-panel {
+    top: 72px;
+  }
+  .review-video-header > div > .button {
+    font-size: 10px;
+    padding: 8px;
+  }
+}
+@media (max-width: 620px) and (orientation: portrait) {
+  .watch-score-panel,
+  .watch-score-panel.left {
+    top: auto;
+    bottom: 55px;
+    left: 10px;
+    right: 10px;
+    width: auto;
+    max-height: 58dvh;
+  }
+  .watch-surface .watch-title {
+    font-size: 11px;
+  }
+  .watch-surface .watch-controls {
+    gap: 4px;
+  }
+  .watch-controls .button {
+    min-width: 35px;
+    padding: 5px;
+  }
+}
+@media (max-width: 620px) and (orientation: portrait) {
+  .watch-score-heading > .icon-button {
+    display: none;
+  }
+}
+@media (max-width: 620px) {
+  .review-video-header {
+    flex-wrap: wrap;
+  }
+  .review-video-header > div {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .watch-surface .watch-controls {
+    flex-wrap: nowrap;
+  }
+}
+.watch-score-heading > .watch-score-navigation {
+  flex-shrink: 0;
+  gap: 4px;
+}
+.watch-score-heading .watch-score-navigation .icon-button {
+  min-width: 36px;
+  min-height: 40px;
+}
+.watch-score-heading strong {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 620px) and (orientation: portrait) {
+  .watch-score-heading .watch-move {
+    display: none;
+  }
+}
+@media (max-width: 900px) and (orientation: portrait) {
+  .watch-score-panel,
+  .watch-score-panel.left {
+    top: auto;
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    height: 54dvh;
+    max-height: none;
+  }
+  .watch-surface.watch-panel-open .video-container {
+    inset: 60px 0 auto;
+    height: calc(46dvh - 76px);
+  }
+  .watch-score-heading .watch-move {
+    display: none;
+  }
+}
+@media (min-width: 621px) and (max-width: 900px) and (orientation: portrait) {
+  .watch-score-body form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 16px;
+  }
+  .watch-score-body form > .shot-video-time,
+  .watch-score-body form > .shot-selectors,
+  .watch-score-body form > .form-grid,
+  .watch-score-body form > fieldset:nth-of-type(3),
+  .watch-score-body form > details,
+  .watch-score-body form > .field-error,
+  .watch-score-body form > .shot-actions {
+    grid-column: 1 / -1;
+  }
+}
