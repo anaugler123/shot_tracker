@@ -61,6 +61,39 @@ export async function createPasswordReset(pool, email) {
   }
 }
 
+async function updatePassword(client, userId, passwordHash) {
+  await client.query("UPDATE users SET password_hash=$1 WHERE id=$2", [
+    passwordHash,
+    userId,
+  ]);
+  await client.query("DELETE FROM sessions WHERE user_id=$1", [userId]);
+  await client.query("DELETE FROM password_resets WHERE user_id=$1", [userId]);
+}
+
+// Only the server-side Railway recovery command calls this function. There is
+// deliberately no public HTTP endpoint that resets an account by email alone.
+export async function resetAccountPassword(pool, email, passwordHash) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const user = await client.query(
+      "SELECT id FROM users WHERE email=$1 FOR UPDATE",
+      [email.trim().toLowerCase()],
+    );
+    if (!user.rowCount)
+      throw new Error(
+        "No account was found for that email. Use the email originally registered with the app.",
+      );
+    await updatePassword(client, user.rows[0].id, passwordHash);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function consumePasswordReset(pool, token, passwordHash) {
   if (typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token))
     throw invalidLink();
@@ -81,14 +114,7 @@ export async function consumePasswordReset(pool, token, passwordHash) {
       [hash(token)],
     );
     if (!consumed.rowCount) throw invalidLink();
-    await client.query("UPDATE users SET password_hash=$1 WHERE id=$2", [
-      passwordHash,
-      userId,
-    ]);
-    await client.query("DELETE FROM sessions WHERE user_id=$1", [userId]);
-    await client.query("DELETE FROM password_resets WHERE user_id=$1", [
-      userId,
-    ]);
+    await updatePassword(client, userId, passwordHash);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");

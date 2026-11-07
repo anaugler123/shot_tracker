@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, createHash } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
 import { createApp } from "../server.mjs";
 import { createPool, migrate } from "../db/database.mjs";
@@ -330,6 +330,189 @@ test(
         await new Promise<void>((resolve) => server!.close(() => resolve()));
       if (disabled)
         await new Promise<void>((resolve) => disabled!.close(() => resolve()));
+      await pool.end();
+      await admin.query(`DROP SCHEMA ${schema} CASCADE`);
+      await admin.end();
+    }
+  },
+);
+
+test(
+  "Railway direct reset hides terminal input, checks confirmation, revokes sessions and preserves account data",
+  {
+    skip:
+      !process.env.TEST_DATABASE_URL ||
+      spawnSync("script", ["--version"]).status !== 0,
+  },
+  async () => {
+    const schema = "hack_terminal_" + randomUUID().replaceAll("-", "");
+    const admin = createPool(process.env.TEST_DATABASE_URL);
+    await admin.query(`CREATE SCHEMA ${schema}`);
+    const url = new URL(process.env.TEST_DATABASE_URL!);
+    url.searchParams.set("options", `-c search_path=${schema}`);
+    const pool = createPool(url.toString());
+    let server: ReturnType<typeof createApp> | undefined;
+    try {
+      await migrate(pool);
+      server = createApp(undefined, {
+        pool,
+        setupToken: "terminal-test-setup",
+        sendPasswordReset: null,
+      });
+      await new Promise<void>((resolve) =>
+        server!.listen(0, "127.0.0.1", resolve),
+      );
+      const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+      const email = "terminal@example.test",
+        original = "original-terminal-password";
+      async function request(path: string, body: unknown) {
+        return fetch(origin + "/api" + path, {
+          method: "POST",
+          headers: { Origin: origin, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      }
+      const created = await request("/setup", {
+        email,
+        name: "Coach",
+        password: original,
+        token: "terminal-test-setup",
+      });
+      const user = (await created.json()).user;
+      await pool.query(
+        "INSERT INTO games(id,metadata,updated_by) VALUES('retained',$1,$2)",
+        [{ opponent: "Visitors" }, user.id],
+      );
+      const before = (await pool.query("SELECT * FROM games")).rows;
+      const memberships = (await pool.query("SELECT * FROM team_memberships"))
+        .rows;
+      await createPasswordReset(pool, email);
+      const cliEnv = {
+        ...process.env,
+        DATABASE_URL: url.toString(),
+        PUBLIC_APP_URL: "",
+      };
+      await assert.rejects(
+        exec(
+          process.execPath,
+          ["scripts/recover-account.mjs", "--email", email, "--set-password"],
+          { env: cliEnv },
+        ),
+        (error: any) => /interactive Railway SSH/.test(error.stderr),
+      );
+      async function terminal(password: string, confirmation?: string) {
+        const quote = (value: string) =>
+          "'" + value.replaceAll("'", "'\\''") + "'";
+        const command = [
+          process.execPath,
+          "scripts/recover-account.mjs",
+          "--email",
+          email,
+          "--set-password",
+        ]
+          .map(quote)
+          .join(" ");
+        return new Promise<{ status: number | null; output: string }>(
+          (resolve, reject) => {
+            const child = spawn(
+              "script",
+              ["--quiet", "--return", "--command", command, "/dev/null"],
+              { env: cliEnv },
+            );
+            let output = "",
+              sent = false,
+              confirmed = false;
+            const timeout = setTimeout(() => {
+              child.kill("SIGKILL");
+              reject(Error("Hidden prompt did not complete"));
+            }, 10000);
+            child.on("error", (error) => {
+              clearTimeout(timeout);
+              reject(error);
+            });
+            const read = (chunk: Buffer) => {
+              output += chunk.toString();
+              if (!sent && output.includes("New password (")) {
+                sent = true;
+                child.stdin.write(
+                  password === "CANCEL" ? "\x03" : password + "\r",
+                );
+              } else if (
+                !confirmed &&
+                output.includes("Confirm new password")
+              ) {
+                confirmed = true;
+                child.stdin.write(confirmation + "\r");
+              }
+            };
+            child.stdout.on("data", read);
+            child.stderr.on("data", read);
+            child.on("close", (status) => {
+              clearTimeout(timeout);
+              resolve({ status, output });
+            });
+          },
+        );
+      }
+      const mismatch = await terminal(
+        "hidden-terminal-password",
+        "different-terminal-password",
+      );
+      assert.equal(mismatch.status, 1);
+      assert.match(mismatch.output, /Passwords do not match/);
+      assert.equal(mismatch.output.includes("hidden-terminal-password"), false);
+      assert.equal(
+        mismatch.output.includes("different-terminal-password"),
+        false,
+      );
+      assert.equal(
+        (await request("/login", { email, password: original })).status,
+        200,
+      );
+      const cancelled = await terminal("CANCEL");
+      assert.equal(cancelled.status, 1);
+      assert.match(cancelled.output, /Recovery cancelled/);
+      assert.equal(
+        (await pool.query("SELECT * FROM password_resets")).rowCount,
+        1,
+      );
+      const updated = await terminal(
+        "hidden-terminal-password",
+        "hidden-terminal-password",
+      );
+      assert.equal(updated.status, 0);
+      assert.match(updated.output, /Password updated/);
+      assert.equal(updated.output.includes("hidden-terminal-password"), false);
+      assert.equal((await pool.query("SELECT * FROM sessions")).rowCount, 0);
+      assert.equal(
+        (await pool.query("SELECT * FROM password_resets")).rowCount,
+        0,
+      );
+      assert.equal(
+        (await request("/login", { email, password: original })).status,
+        401,
+      );
+      assert.equal(
+        (
+          await request("/login", {
+            email,
+            password: "hidden-terminal-password",
+          })
+        ).status,
+        200,
+      );
+      assert.deepEqual((await pool.query("SELECT * FROM games")).rows, before);
+      assert.deepEqual(
+        (await pool.query("SELECT * FROM team_memberships")).rows,
+        memberships,
+      );
+      assert.equal(
+        (await pool.query("SELECT role FROM users")).rows[0].role,
+        "coach",
+      );
+    } finally {
+      if (server)
+        await new Promise<void>((resolve) => server!.close(() => resolve()));
       await pool.end();
       await admin.query(`DROP SCHEMA ${schema} CASCADE`);
       await admin.end();

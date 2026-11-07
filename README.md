@@ -20,10 +20,20 @@ Without `DATABASE_URL`, the app remains in local-device mode and requires no log
 If you are locked out and have Railway project access, deploy the latest `main`, then open an SSH shell **in the running app service** (for example, `railway ssh` from a linked Railway project). In `/app`, run:
 
 ```sh
+npm run account:recover -- --email "YOUR_REGISTERED_EMAIL" --set-password
+```
+
+Enter a new password of 12–256 characters at the hidden prompt, then confirm it. Nothing appears as you type. The password is not included in command arguments or shell history. This owner-only method resets the password directly in the app service's database, revokes old sessions and recovery links, and keeps team data intact. It requires an interactive SSH terminal; password entry through command arguments or pipes is not supported. A mismatch or cancellation changes nothing.
+
+Alternatively, generate a one-time browser recovery link:
+
+```sh
 npm run account:recover -- --email "YOUR_REGISTERED_EMAIL" --url "https://YOUR_APP_DOMAIN"
 ```
 
 Use the account's original email and the HTTPS address where you normally open the app. The command uses the app service's existing `DATABASE_URL`; it does not need a setup token, email provider, or an existing sign-in. Open the private link it prints, choose and confirm a new password, then sign in. Keep the link private; anyone holding it can reset that account. Generating another link replaces the earlier link. Do not run this through `railway run` with a private database hostname on your own computer; use the app's SSH environment so the private database is reachable.
+
+If submitting a link reports it is invalid, expired or used, confirm that it is the latest complete link, that it was generated less than 30 minutes ago, and that the command ran in the app service/environment serving that exact website. Opening a link does not consume it. The direct `--set-password` method above bypasses the browser-link flow when you need to regain access.
 
 Recovery links are single-use, expire in 30 minutes, and have only their SHA-256 hash stored in PostgreSQL. The token is in the URL fragment and is removed from the address bar after the app reads it; it is never returned by the public recovery-request API. Opening a link alone does not change a password. Completing recovery changes only the password and revokes all account sessions; team memberships, roles, games and shots are retained. A new sign-in is required.
 
