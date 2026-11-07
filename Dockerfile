@@ -16,6 +16,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --chown=node:node server.mjs ./
 COPY --chown=node:node db ./db
 COPY --chown=node:node backend ./backend
+COPY --chown=node:node scripts ./scripts
 USER node
 EXPOSE 3000
 CMD ["npm", "start"]

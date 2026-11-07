@@ -20,10 +20,10 @@ const mime = {
 
 export function createApp(
   root = fileURLToPath(new URL("./dist/", import.meta.url)),
-  { pool = null, setupToken } = {},
+  { pool = null, setupToken, sendPasswordReset } = {},
 ) {
   root = resolve(root);
-  const api = pool ? createAPI(pool, { setupToken }) : null;
+  const api = pool ? createAPI(pool, { setupToken, sendPasswordReset }) : null;
   return createServer(async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     let pathname;

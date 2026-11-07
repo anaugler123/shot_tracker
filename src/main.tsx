@@ -99,6 +99,24 @@ function Stone({ small = false }: { small?: boolean }) {
   );
 }
 function App() {
+  const [resetToken, setResetToken] = useState(
+    () =>
+      new URLSearchParams(location.hash.slice(1)).get("reset-password") || "",
+  );
+  useEffect(() => {
+    const capture = () => {
+      const token = new URLSearchParams(location.hash.slice(1)).get(
+        "reset-password",
+      );
+      if (token) {
+        setResetToken(token);
+        history.replaceState({}, "", location.pathname + location.search);
+      }
+    };
+    capture();
+    window.addEventListener("hashchange", capture);
+    return () => window.removeEventListener("hashchange", capture);
+  }, []);
   const [initial] = useState(() => {
     try {
       const raw = localStorage.getItem("hack.store.v1");
@@ -311,9 +329,18 @@ function App() {
   const allShots = filtered.flatMap((g) => g.shots);
   if (
     cloud.mode === "cloud" &&
-    (!cloud.user || new URLSearchParams(location.search).has("invite"))
+    (!cloud.user ||
+      resetToken ||
+      new URLSearchParams(location.search).has("invite"))
   )
-    return <SignIn setup={cloud.setup} onSuccess={cloud.refresh} />;
+    return (
+      <SignIn
+        setup={cloud.setup}
+        onSuccess={cloud.refresh}
+        resetToken={resetToken}
+        onResetDone={() => setResetToken("")}
+      />
+    );
   return (
     <div className={`app-shell ${readOnly ? "read-only" : ""}`}>
       <aside className="sidebar">

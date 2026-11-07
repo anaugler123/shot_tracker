@@ -8,6 +8,11 @@ import {
 import { promisify } from "node:util";
 import { readGame, writeGame } from "../db/database.mjs";
 import { validGame } from "./validation.mjs";
+import {
+  createPasswordReset,
+  consumePasswordReset,
+  createPasswordResetMailer,
+} from "./passwordRecovery.mjs";
 const derive = promisify(scrypt);
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const safeEqual = (a, b) =>
@@ -64,7 +69,10 @@ async function json(req) {
 }
 export function createAPI(
   pool,
-  { setupToken = process.env.SETUP_TOKEN || "" } = {},
+  {
+    setupToken = process.env.SETUP_TOKEN || "",
+    sendPasswordReset = createPasswordResetMailer(),
+  } = {},
 ) {
   const attempts = new Map();
   const send = (res, status, data) => {
@@ -102,13 +110,37 @@ export function createAPI(
     );
     return r.rows[0] || null;
   }
-  async function login(req, res, user, teamId = "default") {
+  async function login(req, res, user, teamId = "default", verifiedHash) {
     const token = randomBytes(32).toString("hex");
-    await pool.query("DELETE FROM sessions WHERE expires_at<now()");
-    await pool.query(
-      "INSERT INTO sessions(token_hash,user_id,expires_at,active_team_id) VALUES($1,$2,now()+interval '14 days',$3)",
-      [hash(token), user.id, teamId],
-    );
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const current = await client.query(
+        "SELECT password_hash FROM users WHERE id=$1 FOR UPDATE",
+        [user.id],
+      );
+      // A reset may have committed after credentials were checked. Don't let
+      // an in-flight sign-in recreate a session using the previous password.
+      if (
+        !current.rowCount ||
+        (verifiedHash && current.rows[0].password_hash !== verifiedHash)
+      )
+        fail(401, "Your password changed. Sign in with your new password.");
+      await client.query(
+        "DELETE FROM sessions WHERE user_id=$1 AND expires_at<now()",
+        [user.id],
+      );
+      await client.query(
+        "INSERT INTO sessions(token_hash,user_id,expires_at,active_team_id) VALUES($1,$2,now()+interval '14 days',$3)",
+        [hash(token), user.id, teamId],
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
     const secure =
       req.headers["x-forwarded-proto"]?.split(",")[0] === "https" ||
       !!req.socket.encrypted;
@@ -133,6 +165,61 @@ export function createAPI(
         return send(res, 200, {
           database: !!pool,
           setupRequired: Number(count.rows[0].count) === 0,
+          passwordResetEmail: !!sendPasswordReset,
+        });
+      }
+      if (path === "/api/password-reset/request" && req.method === "POST") {
+        throttle(req, "password-reset-request");
+        const body = await json(req);
+        if (
+          typeof body.email !== "string" ||
+          body.email.length > 200 ||
+          !/^\S+@\S+\.\S+$/.test(body.email.trim())
+        )
+          fail(400, "Enter a valid email address.");
+        if (!sendPasswordReset)
+          fail(
+            503,
+            "Email recovery isn't set up. Ask your coach or site owner for a recovery link.",
+          );
+        const reset = await createPasswordReset(pool, body.email);
+        if (reset) {
+          // Keep provider latency out of the public response so delivery
+          // timing cannot reveal whether this address has an account.
+          void Promise.resolve()
+            .then(() => sendPasswordReset(reset))
+            .catch(() => {
+              console.error(
+                "Password recovery email delivery failed. Check email service configuration.",
+              );
+            });
+        }
+        // Never reveal whether an email is registered or expose the token.
+        return send(res, 200, {
+          message:
+            "If an account matches that email, a recovery link will be sent. Check your inbox and spam folder.",
+        });
+      }
+      if (path === "/api/password-reset/complete" && req.method === "POST") {
+        throttle(req, "password-reset-complete");
+        const body = await json(req);
+        if (
+          typeof body.password !== "string" ||
+          body.password.length < 12 ||
+          body.password.length > 256
+        )
+          fail(400, "Use a password of 12–256 characters.");
+        await consumePasswordReset(
+          pool,
+          body.token,
+          await passwordHash(body.password),
+        );
+        res.setHeader(
+          "Set-Cookie",
+          "hack_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",
+        );
+        return send(res, 200, {
+          message: "Password updated. Sign in with your new password.",
         });
       }
       if (path === "/api/setup" && req.method === "POST") {
@@ -205,7 +292,13 @@ export function createAPI(
           [safe.id],
         );
         if (!membership.rowCount) fail(403, "No team membership.");
-        return await login(req, res, safe, membership.rows[0].team_id);
+        return await login(
+          req,
+          res,
+          safe,
+          membership.rows[0].team_id,
+          password_hash,
+        );
       }
       if (path === "/api/accept-invite" && req.method === "POST") {
         throttle(req, "invite");
@@ -214,6 +307,7 @@ export function createAPI(
           fail(400, "Invitation token is required.");
         const client = await pool.connect();
         let user;
+        let verifiedHash;
         try {
           await client.query("BEGIN");
           const invitation = await client.query(
@@ -241,6 +335,7 @@ export function createAPI(
                 "Use your existing account password to join this team.",
               );
             const { password_hash, ...safe } = existing.rows[0];
+            verifiedHash = password_hash;
             user = safe;
           } else {
             const fields = accountInput({ ...body, email: i.email });
@@ -272,7 +367,7 @@ export function createAPI(
         } finally {
           client.release();
         }
-        return await login(req, res, user, user.active_team_id);
+        return await login(req, res, user, user.active_team_id, verifiedHash);
       }
       const user = await session(req);
       if (!user) fail(401, "Sign in to access team data.");

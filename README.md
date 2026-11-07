@@ -11,14 +11,35 @@ Four-player curling game entry, team performance charts, per-game dashboards, sp
 5. Open the site. Enter the setup token, name, email and a password of at least 12 characters to create the first coach. You may remove `SETUP_TOKEN` from Railway after the account is created. It cannot create more coaches once a user exists.
 6. Use the team selector in the sidebar and **Manage teams** to rename the initial team or create another team. In **Team accounts**, coaches create single-use invitations for the selected team. Share the generated link with the intended person. It expires after 7 days. Existing users join another team with their existing password; new users create an account. No email is sent automatically.
 
-**Coaches** can edit shared games, rename their teams, create teams, import data, and invite accounts. **Players** can view their teams' games, charts, and videos; API writes are denied. Membership and roles are per team, so a coach on one team may be a player on another. Passwords are salted and hashed with scrypt. Sessions use opaque, hashed database tokens and HttpOnly/SameSite cookies (Secure on Railway HTTPS). Invitations and first-account setup are transactional. Public self-registration is disabled. This version has no password-reset email or account-removal UI; keep access to a coach account.
+**Coaches** can edit shared games, rename their teams, create teams, import data, and invite accounts. **Players** can view their teams' games, charts, and videos; API writes are denied. Membership and roles are per team, so a coach on one team may be a player on another. Passwords are salted and hashed with scrypt. Sessions use opaque, hashed database tokens and HttpOnly/SameSite cookies (Secure on Railway HTTPS). Invitations and first-account setup are transactional. Public self-registration is disabled.
 
 Without `DATABASE_URL`, the app remains in local-device mode and requires no login. This is useful for local development or trying the interface. Data in that mode is not shared between browsers.
+
+## Password recovery
+
+If you are locked out and have Railway project access, deploy the latest `main`, then open an SSH shell **in the running app service** (for example, `railway ssh` from a linked Railway project). In `/app`, run:
+
+```sh
+npm run account:recover -- --email "YOUR_REGISTERED_EMAIL" --url "https://YOUR_APP_DOMAIN"
+```
+
+Use the account's original email and the HTTPS address where you normally open the app. The command uses the app service's existing `DATABASE_URL`; it does not need a setup token, email provider, or an existing sign-in. Open the private link it prints, choose and confirm a new password, then sign in. Keep the link private; anyone holding it can reset that account. Generating another link replaces the earlier link. Do not run this through `railway run` with a private database hostname on your own computer; use the app's SSH environment so the private database is reachable.
+
+Recovery links are single-use, expire in 30 minutes, and have only their SHA-256 hash stored in PostgreSQL. The token is in the URL fragment and is removed from the address bar after the app reads it; it is never returned by the public recovery-request API. Opening a link alone does not change a password. Completing recovery changes only the password and revokes all account sessions; team memberships, roles, games and shots are retained. A new sign-in is required.
+
+For automatic **Forgot password?** emails, add these **server-side** variables to the Railway app and redeploy:
+
+- `PUBLIC_APP_URL`: the app's public HTTPS URL.
+- `RESEND_API_KEY`: a Resend API key with permission to send email.
+- `PASSWORD_RESET_FROM`: a sender address on a domain verified in Resend, such as `Shot Tracker <accounts@your-domain.com>`.
+
+The email flow returns the same acknowledgement for registered and unknown addresses and applies request limits. Without email configuration, the site explains that the owner must provide a recovery link; owner recovery continues to work. Email provider delivery must be configured and checked on the deployed service. Invitation emails are still not sent automatically.
 
 ## SQL and migrations
 
 - [db/migrations/001_initial.sql](db/migrations/001_initial.sql) defines users, sessions, invitations, games, shots and end scores, plus `player_performance` and `game_results` views.
 - [db/migrations/002_teams.sql](db/migrations/002_teams.sql) adds teams and per-team memberships, sessions, invitations, games, shots and summaries. Existing accounts and games move into the initial team without resetting revisions or changing passwords. Game IDs, shot identities and revision checks are scoped to each team.
+- [db/migrations/003_password_resets.sql](db/migrations/003_password_resets.sql) adds expiring, hashed recovery tokens without changing account passwords or team data.
 - Games retain metadata and a revision counter; individual shots and end scores are stored in relational tables with score/range constraints and foreign keys.
 - [db/database.mjs](db/database.mjs) applies migrations under a transaction/advisory lock. Applied versions are recorded in `schema_migrations`. Repeated startup is safe. Future schema changes should be new numbered migrations, rather than edits to an applied migration.
 - You can run the same migrations explicitly with `DATABASE_URL` set using `npm run db:migrate`.

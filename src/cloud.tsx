@@ -546,19 +546,158 @@ export function useCloudStore({
     ).length,
   };
 }
+function PasswordRecovery({
+  token,
+  onBack,
+  onComplete,
+}: {
+  token: string;
+  onBack: () => void;
+  onComplete: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  return (
+    <div className="account-screen">
+      <section className="panel account-card">
+        <h1>{token ? "Reset password" : "Forgot password"}</h1>
+        <p>
+          {token
+            ? "Choose a new password of at least 12 characters."
+            : "Enter your account email to request a recovery link. If email recovery is unavailable, ask the site owner for a recovery link."}
+        </p>
+        <form
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setError("");
+            setMessage("");
+            const data = Object.fromEntries(new FormData(event.currentTarget));
+            if (token && data.password !== data.confirmPassword) {
+              setError("Passwords do not match.");
+              return;
+            }
+            setBusy(true);
+            try {
+              const result = await api(
+                token ? "/password-reset/complete" : "/password-reset/request",
+                token
+                  ? { token, password: data.password }
+                  : { email: data.email },
+              );
+              if (token) await onComplete();
+              else setMessage(result.message);
+            } catch (error) {
+              setError((error as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {token ? (
+            <>
+              <label>
+                New password
+                <input
+                  name="password"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={12}
+                  maxLength={256}
+                  required
+                />
+              </label>
+              <label>
+                Confirm new password
+                <input
+                  name="confirmPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={12}
+                  maxLength={256}
+                  required
+                />
+              </label>
+            </>
+          ) : (
+            <label>
+              Email
+              <input
+                name="email"
+                type="email"
+                autoComplete="email"
+                maxLength={200}
+                required
+              />
+            </label>
+          )}
+          {error && (
+            <p className="field-error" role="alert">
+              {error}
+            </p>
+          )}
+          {message && (
+            <p className="inline-success" role="status">
+              {message}
+            </p>
+          )}
+          <button className="button primary full-width" disabled={busy}>
+            {busy
+              ? "Please wait…"
+              : token
+                ? "Reset password"
+                : "Send recovery link"}
+          </button>
+          <button
+            className="button secondary full-width"
+            type="button"
+            disabled={busy}
+            onClick={onBack}
+          >
+            Back to sign in
+          </button>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 export function SignIn({
   setup,
   onSuccess,
+  resetToken = "",
+  onResetDone,
 }: {
   setup: boolean;
   onSuccess: (teamId?: string) => Promise<void>;
+  resetToken?: string;
+  onResetDone?: () => void;
 }) {
   const [invite] = useState(
     () => new URLSearchParams(location.search).get("invite") || "",
   );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [forgot, setForgot] = useState(false);
+  const [recovered, setRecovered] = useState(false);
   const action = invite ? "accept-invite" : setup ? "setup" : "login";
+  if (resetToken || forgot)
+    return (
+      <PasswordRecovery
+        key={resetToken || "forgot"}
+        token={resetToken}
+        onBack={() => {
+          setForgot(false);
+          onResetDone?.();
+        }}
+        onComplete={async () => {
+          await onSuccess();
+          setRecovered(true);
+          setForgot(false);
+          onResetDone?.();
+        }}
+      />
+    );
   return (
     <div className="account-screen">
       <section className="panel account-card">
@@ -596,6 +735,11 @@ export function SignIn({
             }
           }}
         >
+          {recovered && (
+            <p className="inline-success" role="status">
+              Password updated. Sign in with your new password.
+            </p>
+          )}
           {setup && !invite && (
             <label>
               Setup token
@@ -650,6 +794,18 @@ export function SignIn({
                   : "Create account"}
           </button>
         </form>
+        {action === "login" && (
+          <button
+            className="text-button"
+            type="button"
+            onClick={() => {
+              setForgot(true);
+              setError("");
+            }}
+          >
+            Forgot password?
+          </button>
+        )}
       </section>
     </div>
   );

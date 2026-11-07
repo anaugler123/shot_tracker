@@ -11,7 +11,8 @@
     "test:e2e": "playwright test",
     "format": "prettier --write src tests *.ts *.json index.html",
     "start": "node server.mjs",
-    "db:migrate": "node db/migrate.mjs"
+    "db:migrate": "node db/migrate.mjs",
+    "account:recover": "node scripts/recover-account.mjs"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
